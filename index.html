@@ -199,6 +199,8 @@
       padding: 0;
       margin: 0;
       text-align: center;
+      /* Prevent iOS Safari from zooming on focus by setting minimum font-size */
+      font-size: 16px;
     }
     /* Print styles */
     @media print {
@@ -1104,6 +1106,13 @@
       return dates.length ? dates[dates.length - 1] : null;
     }
 
+    /** Find the next chronological date string after the given date. */
+    function findNextDate(date) {
+      const d = new Date(date);
+      d.setDate(d.getDate() + 1);
+      return d.toISOString().slice(0,10);
+    }
+
     /**
      * Export the current monthly view (selected system and month) to a CSV file.
      * The CSV contains columns Date, Point, Field and Value and can be opened
@@ -1184,6 +1193,23 @@
       XLSX.writeFile(wb, filename);
     }
 
+    /**
+     * Recompute makeup (delta and total) values for all days of a given month
+     * for the specified system and point.  This is used when the user edits
+     * a meter reading in the monthly view so that subsequent days are
+     * recalculated correctly.  The month parameter should be a number
+     * 1–12 (as returned by Date.getMonth()+1).  The year is full year.
+     */
+    function recomputeMakeupForMonth(sysName, ptName, year, month) {
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const mm = String(month).padStart(2,'0');
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dd = String(day).padStart(2,'0');
+        const dateStr = `${year}-${mm}-${dd}`;
+        computeMakeupForPoint(dateStr, sysName, ptName);
+      }
+    }
+
     /** Apply high/low range classes to cell. */
     function applyRangeClass(cell, system, field, value) {
       cell.classList.remove('low-cell','high-cell','ok-cell');
@@ -1247,13 +1273,50 @@
           fieldCell.className = 'sticky-col';
           tr.appendChild(fieldCell);
           for (let day = 1; day <= daysInMonth; day++) {
-            const date = new Date(year, month - 1, day).toISOString().slice(0,10);
-            const td = document.createElement('td'); td.className = 'cell';
+            const dateObj = new Date(year, month - 1, day);
+            const date = dateObj.toISOString().slice(0,10);
+            const td = document.createElement('td');
+            td.className = 'cell';
             let val = '';
             if (logs[date]?.[sysName]?.[ptName]?.[field] !== undefined) {
               val = logs[date][sysName][ptName][field];
             }
-            td.textContent = val;
+            const isCalc = ptObj.calcField === field || ptObj.totalField === field;
+            if (isCalc) {
+              td.classList.add('computed');
+              td.textContent = val;
+            } else {
+              const inp = document.createElement('input');
+              inp.type = 'text';
+              inp.className = 'cell-input';
+              inp.value = val;
+              // Use change event to avoid re-rendering on every keystroke
+              inp.addEventListener('change', () => {
+                const value = inp.value;
+                // Ensure nested objects exist
+                if (!logs[date]) logs[date] = {};
+                if (!logs[date][sysName]) logs[date][sysName] = {};
+                if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
+                logs[date][sysName][ptName][field] = value;
+                // If the edited field is the meter field, recompute deltas for the entire month
+                if (ptObj.meterField === field) {
+                  // Determine month boundaries
+                  const y = parseInt(year,10);
+                  const m = parseInt(month,10);
+                  recomputeMakeupForMonth(sysName, ptName, y, m);
+                } else {
+                  // Otherwise, just recompute for this date and the following date (to update totals)
+                  computeMakeupForPoint(date, sysName, ptName);
+                  // compute next day to update delta that depends on this day
+                  const nextDate = findNextDate(date);
+                  if (nextDate) computeMakeupForPoint(nextDate, sysName, ptName);
+                }
+                saveLogs();
+                // Rebuild monthly grid to reflect changes and recalculate highlighting
+                buildMonthlyGrid();
+              });
+              td.appendChild(inp);
+            }
             applyRangeClass(td, sysName, field, val);
             tr.appendChild(td);
           }
