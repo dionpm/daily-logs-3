@@ -176,18 +176,131 @@ function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 /* ===== Keys & Seed ===== */
 const CONFIG_KEY='cfg_v2';
 const DATA_KEY='db_v2';
-const SEED = {
-  systems: ["Cooling Tower #1","Cooling Tower #2","Central Chilled Water","Central Hot Water","B Condensate Return","J Condensate Return","J Boiler - Laundry","J2 Boiler - Food Factory"],
+const SEED = {systems: [
+    "Cooling Tower #1",
+    "Cooling Tower #2",
+    "Central Chilled Water",
+    "Central Hot Water",
+    "B Condensate Return",
+    "J Condensate Return",
+    "J Boiler - Laundry",
+    "J2 Boiler - Food Factory"
+  ],
   bySystem: {
-    "Cooling Tower #1":{points:["Basin","Return","Makeup"], fields:["pH","ORP","M","Total Hardness","PTSA","Conductivity","Chemical Added","Comments"]},
-    "Cooling Tower #2":{points:["Basin","Return","Makeup"], fields:["pH","ORP","M","Total Hardness","PTSA","Conductivity","Chemical Added","Comments"]},
-    "Central Chilled Water":{points:["Supply"], fields:["Nitrite","TD","pH","Hardness","Chemical Added","Comments"]},
-    "Central Hot Water":{points:["Supply"], fields:["Nitrite","TD","pH","Hardness","Chemical Added","Comments"]},
-    "B Condensate Return":{points:["East","West"], fields:["pH","Total Hardness","Conductivity (µS/cm)"]},
-    "J Condensate Return":{points:["Sample"], fields:["pH","Total Hardness","Conductivity (µS/cm)"]},
-    "J Boiler - Laundry":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Gallons","Manual Blowdown","CBD %","Softener #","Chlorine","Total Hardness","Alkalinity","pH","Sulfite","Conductivity","Phosphate","DEHA","Return Hardness","Comments"]},
-    "J2 Boiler - Food Factory":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Gallons","Manual Blowdown","CBD %","Softener #","Chlorine","Total Hardness","Alkalinity","pH","Sulfite","Conductivity","Phosphate","DEHA","Return Hardness","Comments"]}
-  }
+    /* Cooling Tower Supply Logs — same fields for #1 and #2 */
+    "Cooling Tower #1": {
+      points: ["Basin", "Return", "Makeup"],
+      fields: [
+        "pH",
+        "ORP (mV)",
+        "M (meter index)",
+        "Total Hardness (ppm as CaCO3)",
+        "PTSA (ppb)",
+        "Conductivity (µS/cm)",
+        "Chemical Added",
+        "Comments"
+      ]
+    },
+    "Cooling Tower #2": {
+      points: ["Basin", "Return", "Makeup"],
+      fields: [
+        "pH",
+        "ORP (mV)",
+        "M (meter index)",
+        "Total Hardness (ppm as CaCO3)",
+        "PTSA (ppb)",
+        "Conductivity (µS/cm)",
+        "Chemical Added",
+        "Comments"
+      ]
+    },
+
+    /* Central Chilled Water Supply */
+    "Central Chilled Water": {
+      points: ["Supply"],
+      fields: [
+        "Nitrite (ppm)",
+        "TDS (ppm)",
+        "pH",
+        "Hardness (ppm as CaCO3)",
+        "Chemical Added",
+        "Comments"
+      ]
+    },
+
+    /* Central Hot Water Supply */
+    "Central Hot Water": {
+      points: ["Supply"],
+      fields: [
+        "Nitrite (ppm)",
+        "TDS (ppm)",
+        "pH",
+        "Hardness (ppm as CaCO3)",
+        "Chemical Added",
+        "Comments"
+      ]
+    },
+
+    /* B Condensate Return — East/West readings */
+    "B Condensate Return": {
+      points: ["East", "West"],
+      fields: [
+        "pH",
+        "Total Hardness (ppm as CaCO3)",
+        "Conductivity (µS/cm)"
+      ]
+    },
+
+    /* J Condensate Return — single sample */
+    "J Condensate Return": {
+      points: ["Sample"],
+      fields: [
+        "pH",
+        "Total Hardness (ppm as CaCO3)",
+        "Conductivity (µS/cm)"
+      ]
+    },
+
+    /* Boiler Logs — Laundry & Food Factory (same structure) */
+    "J Boiler - Laundry": {
+      points: ["Feedwater", "Boiler Water", "Blowdown"],
+      fields: [
+        "Gallons (feed)",
+        "Manual Blowdown",               // e.g., "10 sec" — keep as free text
+        "CBD %",                         // Continuous Blowdown
+        "Softener #",
+        "Chlorine (ppm)",
+        "Total Hardness (ppm as CaCO3)",
+        "Alkalinity (ppm as CaCO3)",
+        "pH",
+        "Sulfite (ppm as SO₃)",
+        "Conductivity (µS/cm)",
+        "Phosphate (ppm as PO₄)",
+        "DEHA (ppm)",
+        "Return Hardness (ppm)",
+        "Comments"
+      ]
+    },
+    "J2 Boiler - Food Factory": {
+      points: ["Feedwater", "Boiler Water", "Blowdown"],
+      fields: [
+        "Gallons (feed)",
+        "Manual Blowdown",
+        "CBD %",
+        "Softener #",
+        "Chlorine (ppm)",
+        "Total Hardness (ppm as CaCO3)",
+        "Alkalinity (ppm as CaCO3)",
+        "pH",
+        "Sulfite (ppm as SO₃)",
+        "Conductivity (µS/cm)",
+        "Phosphate (ppm as PO₄)",
+        "DEHA (ppm)",
+        "Return Hardness (ppm)",
+        "Comments"
+      ]
+    }
+   }
 };
 
 /* ===== State ===== */
