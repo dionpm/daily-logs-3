@@ -197,6 +197,21 @@
       th { background: #eee; color: #000; }
       .sticky-col { position: static; background: #fff; }
     }
+    /* Small utility button used in settings for add/delete operations */
+    .small-btn {
+      font-size: 12px;
+      padding: 2px 6px;
+      margin-left: 4px;
+      background: var(--border);
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .small-btn:hover {
+      background: var(--accent);
+      color: var(--bg);
+    }
   </style>
 </head>
 <body>
@@ -460,20 +475,119 @@
     function seedDefaults() {
       // Only seed if no systems yet
       if (Object.keys(config.systems).length > 0) return;
-      // Cooling Towers
-      config.systems['Cooling Tower 1'] = { points: { 'Tower 1': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
-      config.systems['Cooling Tower 2'] = { points: { 'Tower 2': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
-      // Loops
-      config.systems['Chilled Loop'] = { points: { 'Chilled Loop': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
-      config.systems['Hot Loop'] = { points: { 'Hot Loop': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
-      // Boilers
-      config.systems['J Boiler – Laundry'] = { points: { 'Laundry': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
-      config.systems['J2 Boilers'] = { points: {
-        'Boiler 1': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' },
-        'Boiler 2': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' }
-      } };
-      // Gas meter
-      config.systems['Gas Meter'] = { points: { 'Gas': { fields: ['Reading','Usage (calc)','Total Usage (calc)'], meterField:'Reading', calcField:'Usage (calc)', totalField:'Total Usage (calc)' } } };
+      /*
+        Define a comprehensive set of default systems.  Each system contains one
+        or more points and each point defines a list of fields.  Where
+        appropriate, a point may also define a meterField (the primary
+        reading), a calcField (the per‑day delta) and a totalField (the
+        month‑to‑date total).  These three properties enable the automatic
+        makeup calculations used throughout the app.
+
+        The following defaults were derived from the user’s specification.  If
+        additional systems or points are needed later they can be added via
+        the Settings tab.
+      */
+      // B Condensate Return – two points (East/West) with pH, hardness and conductivity
+      config.systems['B Condensate Return'] = {
+        points: {
+          'East': { fields: ['pH','Total Hardness','Conductivity (UMHOS/CM)'] },
+          'West': { fields: ['pH','Total Hardness','Conductivity (UMHOS/CM)'] }
+        }
+      };
+      // Cooling Tower Supply Log #1 – includes meter and computed makeup
+      config.systems['Cooling Tower Supply Log #1'] = {
+        points: {
+          'Tower 1': {
+            fields: ['M','Makeup (calc)','Total Makeup (calc)','pH','ORP','Total Hardness','PTSA','Conductivity','Chemical Added','Comments'],
+            meterField: 'M',
+            calcField: 'Makeup (calc)',
+            totalField: 'Total Makeup (calc)'
+          }
+        }
+      };
+      // Cooling Tower Supply Log #2 – same as #1 but for tower 2
+      config.systems['Cooling Tower Supply Log #2'] = {
+        points: {
+          'Tower 2': {
+            fields: ['M','Makeup (calc)','Total Makeup (calc)','pH','ORP','Total Hardness','PTSA','Conductivity','Chemical Added','Comments'],
+            meterField: 'M',
+            calcField: 'Makeup (calc)',
+            totalField: 'Total Makeup (calc)'
+          }
+        }
+      };
+      // Central chilled water supply – single point with nitrite, TDS, etc.
+      config.systems['Central Chilled Water Supply Log'] = {
+        points: {
+          'Supply': { fields: ['Nitrite','Total Dissolved Solids (TDS / TD)','pH','Hardness','Chemical Added','Comments'] }
+        }
+      };
+      // Central hot water supply – similar fields as chilled water
+      config.systems['Central Hot Water Supply Log'] = {
+        points: {
+          'Supply': { fields: ['Nitrite','Total Dissolved Solids (TDS / TD)','pH','Hardness','Chemical Added','Comments'] }
+        }
+      };
+      // Boiler log – J Laundry – gallons used as meter with makeup logic
+      config.systems['Boiler Log – J Laundry'] = {
+        points: {
+          'Laundry': {
+            fields: [
+              'Gallons','Makeup (calc)','Total Makeup (calc)',
+              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
+              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
+              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
+            ],
+            meterField: 'Gallons',
+            calcField: 'Makeup (calc)',
+            totalField: 'Total Makeup (calc)'
+          }
+        }
+      };
+      // Boiler log – J2 Food Factory – two boilers, each with same fields as laundry
+      config.systems['Boiler Log – J2 Food Factory'] = {
+        points: {
+          'Boiler 1': {
+            fields: [
+              'Gallons','Makeup (calc)','Total Makeup (calc)',
+              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
+              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
+              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
+            ],
+            meterField: 'Gallons',
+            calcField: 'Makeup (calc)',
+            totalField: 'Total Makeup (calc)'
+          },
+          'Boiler 2': {
+            fields: [
+              'Gallons','Makeup (calc)','Total Makeup (calc)',
+              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
+              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
+              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
+            ],
+            meterField: 'Gallons',
+            calcField: 'Makeup (calc)',
+            totalField: 'Total Makeup (calc)'
+          }
+        }
+      };
+      // J Condensate Return – simple return with pH, hardness and conductivity
+      config.systems['J Condensate Return'] = {
+        points: {
+          'Return': { fields: ['pH','Total Hardness (TH)','Conductivity (UMHOS/CM)'] }
+        }
+      };
+      // Retain Gas Meter from original defaults
+      config.systems['Gas Meter'] = {
+        points: {
+          'Gas': {
+            fields: ['Reading','Usage (calc)','Total Usage (calc)'],
+            meterField: 'Reading',
+            calcField: 'Usage (calc)',
+            totalField: 'Total Usage (calc)'
+          }
+        }
+      };
       saveConfig();
       renderSystemOptions();
       renderSystemsList();
@@ -500,7 +614,15 @@
       });
     }
 
-    /** Render list of systems/points/fields in settings. */
+    /**
+     * Render list of systems, points and fields in the Settings tab.  This
+     * version provides buttons to add or delete systems, points and fields.
+     * Systems are shown as cards with their points nested underneath.  Each
+     * system has a "Delete" button and an "Add Point" button.  Each point
+     * lists its fields and provides an "Add Field" button plus delete
+     * buttons for individual fields and the point itself.  Deleting a
+     * system or point will also remove any associated log entries.
+     */
     function renderSystemsList() {
       const container = document.getElementById('systemsList');
       container.innerHTML = '';
@@ -508,28 +630,157 @@
       Object.entries(systems).forEach(([sysName, sysObj]) => {
         const sysDiv = document.createElement('div');
         sysDiv.className = 'card';
-        const header = document.createElement('h3');
-        header.textContent = sysName;
+        // System header with name and delete button
+        const header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        const title = document.createElement('h3');
+        title.textContent = sysName;
+        header.appendChild(title);
+        const sysBtns = document.createElement('div');
+        const delSysBtn = document.createElement('button');
+        delSysBtn.textContent = 'Delete';
+        delSysBtn.className = 'small-btn';
+        delSysBtn.addEventListener('click', () => {
+          if (!confirm(`Delete system "${sysName}" and all its data?`)) return;
+          // Remove logs for this system across all dates
+          Object.keys(logs).forEach(date => {
+            if (logs[date][sysName]) delete logs[date][sysName];
+          });
+          delete config.systems[sysName];
+          saveConfig();
+          saveLogs();
+          renderSystemOptions();
+          renderSystemsList();
+          renderRangesTable();
+          buildDailyGrid();
+          buildMonthlyGrid();
+        });
+        sysBtns.appendChild(delSysBtn);
+        header.appendChild(sysBtns);
         sysDiv.appendChild(header);
         // Points list
         Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
           const ptDiv = document.createElement('div');
           ptDiv.style.marginBottom = '8px';
+          // Point header with name and delete button
+          const ptHeader = document.createElement('div');
+          ptHeader.style.display = 'flex';
+          ptHeader.style.justifyContent = 'space-between';
+          ptHeader.style.alignItems = 'center';
           const ptTitle = document.createElement('strong');
           ptTitle.textContent = ptName;
-          ptDiv.appendChild(ptTitle);
+          ptHeader.appendChild(ptTitle);
+          const ptBtns = document.createElement('div');
+          const delPtBtn = document.createElement('button');
+          delPtBtn.textContent = 'Delete';
+          delPtBtn.className = 'small-btn';
+          delPtBtn.addEventListener('click', () => {
+            if (!confirm(`Delete point "${ptName}" from system "${sysName}"?`)) return;
+            // Remove logs for this point
+            Object.keys(logs).forEach(date => {
+              if (logs[date][sysName] && logs[date][sysName][ptName]) {
+                delete logs[date][sysName][ptName];
+              }
+            });
+            delete config.systems[sysName].points[ptName];
+            saveConfig();
+            saveLogs();
+            renderSystemOptions();
+            renderSystemsList();
+            renderRangesTable();
+            buildDailyGrid();
+            buildMonthlyGrid();
+          });
+          ptBtns.appendChild(delPtBtn);
+          ptHeader.appendChild(ptBtns);
+          ptDiv.appendChild(ptHeader);
           // Fields list
           const fieldsUl = document.createElement('ul');
           fieldsUl.style.listStyle = 'disc';
           fieldsUl.style.paddingLeft = '20px';
-          ptObj.fields.forEach(f => {
+          ptObj.fields.forEach((fieldName, idx) => {
             const li = document.createElement('li');
-            li.textContent = f;
+            // Label text
+            const span = document.createElement('span');
+            span.textContent = fieldName;
+            li.appendChild(span);
+            // Delete field button (only for non‑calc fields)
+            const delFldBtn = document.createElement('button');
+            delFldBtn.textContent = '×';
+            delFldBtn.title = 'Delete field';
+            delFldBtn.className = 'small-btn';
+            delFldBtn.style.marginLeft = '6px';
+            delFldBtn.addEventListener('click', () => {
+              if (!confirm(`Delete field "${fieldName}" from point "${ptName}"?`)) return;
+              // Remove from fields array
+              const idx = ptObj.fields.indexOf(fieldName);
+              if (idx >= 0) ptObj.fields.splice(idx, 1);
+              // If deleting the meter/calculated fields, clear definitions
+              if (ptObj.meterField === fieldName) {
+                delete ptObj.meterField;
+                delete ptObj.calcField;
+                delete ptObj.totalField;
+              }
+              // Remove from logs
+              Object.keys(logs).forEach(date => {
+                if (logs[date]?.[sysName]?.[ptName]?.hasOwnProperty(fieldName)) {
+                  delete logs[date][sysName][ptName][fieldName];
+                }
+              });
+              saveConfig();
+              saveLogs();
+              renderRangesTable();
+              renderSystemsList();
+              buildDailyGrid();
+              buildMonthlyGrid();
+            });
+            // Only append delete button for user‑defined (non calc) fields
+            const isCalc = fieldName.toLowerCase().includes('(calc)');
+            if (!isCalc) li.appendChild(delFldBtn);
             fieldsUl.appendChild(li);
           });
           ptDiv.appendChild(fieldsUl);
+          // Add field button
+          const addFieldBtn = document.createElement('button');
+          addFieldBtn.textContent = 'Add Field';
+          addFieldBtn.className = 'small-btn';
+          addFieldBtn.addEventListener('click', () => {
+            const fname = prompt(`Enter new field name for point "${ptName}":`);
+            if (!fname) return;
+            if (ptObj.fields.includes(fname)) {
+              alert('Field already exists'); return;
+            }
+            ptObj.fields.push(fname);
+            saveConfig();
+            renderRangesTable();
+            renderSystemsList();
+            buildDailyGrid();
+            buildMonthlyGrid();
+          });
+          ptDiv.appendChild(addFieldBtn);
           sysDiv.appendChild(ptDiv);
         });
+        // Add point button
+        const addPtBtn = document.createElement('button');
+        addPtBtn.textContent = 'Add Point';
+        addPtBtn.className = 'small-btn';
+        addPtBtn.addEventListener('click', () => {
+          const pn = prompt(`Enter new point name for system "${sysName}":`);
+          if (!pn) return;
+          if (config.systems[sysName].points[pn]) {
+            alert('Point already exists'); return;
+          }
+          config.systems[sysName].points[pn] = { fields: [] };
+          saveConfig();
+          renderSystemOptions();
+          renderSystemsList();
+          renderRangesTable();
+          buildDailyGrid();
+          buildMonthlyGrid();
+        });
+        sysDiv.appendChild(addPtBtn);
         container.appendChild(sysDiv);
       });
     }
@@ -626,6 +877,8 @@
       const tbody = document.createElement('tbody');
       Object.entries(sys.points).forEach(([ptName, ptObj]) => {
         const row = document.createElement('tr');
+        // capture a reference to this row for event handlers to update cells
+        const rowRef = row;
         const th = document.createElement('th'); th.textContent = ptName; th.className = 'sticky-col'; row.appendChild(th);
         ptObj.fields.forEach(field => {
           const td = document.createElement('td');
@@ -637,23 +890,35 @@
           }
           // For meter/calculated fields, we handle differently
           if (isCalc) {
+            // Computed cells simply display the stored value
             td.classList.add('computed');
             td.textContent = val;
           } else {
+            // Editable cells use contentEditable.  On input we update only the
+            // affected row instead of re-rendering the entire grid.  This
+            // prevents iOS virtual keyboards from dismissing after a single
+            // keystroke.
             td.contentEditable = true;
             td.textContent = val;
             td.addEventListener('input', () => {
-              // Save value
               const value = td.textContent.trim();
               if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
               logs[date][sysName][ptName][field] = value;
-              // Recalculate makeup/usage values for this point
+              // Recompute deltas and totals for this point
               computeMakeupForPoint(date, sysName, ptName);
               saveLogs();
-              buildDailyGrid(); // re-render to update computed fields & highlights
+              // Update all cells in the current row with latest values and
+              // range classes.  rowRef and ptObj are closed over from the
+              // outer scope.
+              ptObj.fields.forEach((f, i) => {
+                const targetCell = rowRef.children[i + 1];
+                const v = logs[date]?.[sysName]?.[ptName]?.[f] ?? '';
+                targetCell.textContent = v;
+                applyRangeClass(targetCell, sysName, f, v);
+              });
             });
           }
-          // Apply range class
+          // Apply range class for initial render
           applyRangeClass(td, sysName, field, val);
           row.appendChild(td);
         });
