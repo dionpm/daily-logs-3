@@ -375,24 +375,361 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
   if(new URL(location.href).searchParams.get('reset')==='1'){ btnReset.click(); }
 })();
 </script>
-<!-- === WATER LOG MASTER FORM (DROP-IN) === -->
-<style>
-  .wl-card{max-width:860px;margin:20px auto;padding:16px;border:1px solid #ddd;border-radius:10px;font-family:system-ui,Arial,sans-serif}
-  .wl-row{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
-  .wl-row>div{flex:1;min-width:180px}
-  .wl-label{font-size:12px;font-weight:600;margin-bottom:4px}
-  .wl-input,.wl-select,.wl-text{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
-  .wl-h{font-size:18px;font-weight:700;margin:8px 0 4px}
-  .wl-hr{border:none;border-top:1px solid #eee;margin:12px 0}
-  .wl-btn{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f7f7f7;cursor:pointer}
-  .wl-btn.primary{background:#eef;border-color:#a8b7ff}
-  .wl-chip{display:inline-flex;gap:8px;align-items:center;border:1px solid #ddd;border-radius:16px;padding:4px 8px;margin:4px 4px 0 0}
-  .wl-small{font-size:11px;color:#666}
-  .wl-sticky{position:fixed;right:16px;bottom:16px;z-index:9999}
-</style>
+(function(){
+  // --- read systems from main app CONFIG / localStorage ---
+  const CFG_KEY = 'cfg_v2';
+  const DB_KEY  = 'db_v2';
 
-<div id="wl-root" class="wl-card" style="display:none"></div>
-<button id="wl-open" class="wl-btn wl-sticky">Open Water Log</button>
+  function loadConfig() {
+    try {
+      // prefer in-memory CONFIG from the main page if present
+      if (window.CONFIG && window.CONFIG.systems) return window.CONFIG;
+      const raw = localStorage.getItem(CFG_KEY);
+      return raw ? JSON.parse(raw) : { systems: [], bySystem: {} };
+    } catch(e){ return { systems: [], bySystem: {} }; }
+  }
+  function loadDB() {
+    try { return JSON.parse(localStorage.getItem(DB_KEY) || '{}'); } catch(e){ return {}; }
+  }
+  function saveDB(DB){ try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch(e){} }
+  function saveCONFIG(CONFIG){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CONFIG)); } catch(e){} }
+
+  // Best-effort type guesser by system name keywords (adjust as you like)
+  function inferType(name){
+    const n = (name||'').toLowerCase();
+    if (n.includes('cool') || n.includes('tower')) return 'cooling_tower';
+    if (n.includes('chill')) return 'chilled_water';
+    if (n.includes('hot')) return 'hot_water';
+    if (n.includes('condens')) return 'condensate_return';
+    if (n.includes('boiler') || n.includes('j2') || n.includes('laundry') || n.includes('food')) return 'boiler';
+    return 'cooling_tower';
+  }
+
+  function systemOptions(){
+    const CONFIG = loadConfig();
+    return (CONFIG.systems||[]).map(name => ({ id:name, type: inferType(name) }));
+  }
+
+  // ----- labels & per-type field visibility (matches your sheets) -----
+  const CONFIG_FIELDS = {
+    labels:{
+      pH:"pH",
+      totalHardness:"Total Hardness (ppm as CaCO3)",
+      conductivity:"Conductivity (µS/cm)",
+      orp:"ORP (mV)",
+      meterM:"M (meter index)",
+      ptsa:"PTSA (ppb)",
+      nitrite:"Nitrite (ppm)",
+      tds:"Total Dissolved Solids (ppm)",
+      gallons:"Gallons (feed)",
+      manualBlowdown:"Manual Blowdown (e.g., '10 sec')",
+      continuousBlowdown:"Continuous Blowdown (CBD, %)",
+      softenerNumber:"Softener #",
+      chlorine:"Chlorine (ppm)",
+      alkalinity:"Alkalinity (ppm as CaCO3)",
+      sulfite:"Sulfite (ppm as SO3)",
+      phosphate:"Phosphate (ppm as PO4)",
+      deha:"DEHA (ppm)",
+      returnHardness:"Return Hardness (ppm)",
+      comments:"Comments",
+    },
+    systems:{
+      condensate_return:{
+        show:["pH","totalHardness","conductivity"],
+        perSide:["pH","totalHardness","conductivity"] // East/West
+      },
+      cooling_tower:{
+        show:["pH","orp","meterM","totalHardness","ptsa","conductivity","chemicals","comments"]
+      },
+      chilled_water:{
+        show:["nitrite","tds","pH","totalHardness","chemicals","comments"],
+        hide:["conductivity"]
+      },
+      hot_water:{
+        show:["nitrite","tds","pH","totalHardness","chemicals","comments"]
+      },
+      boiler:{
+        show:[
+          "gallons","manualBlowdown","continuousBlowdown","softenerNumber",
+          "chlorine","totalHardness","alkalinity","pH","sulfite",
+          "conductivity","phosphate","deha","returnHardness","comments"
+        ],
+        hide:["chemicals"]
+      }
+    }
+  };
+
+  // ---- helpers ----
+  const $ = (sel, el=document)=>el.querySelector(sel);
+  const el = (tag, props={})=>{ const node=document.createElement(tag); Object.assign(node, props); return node; };
+  const hr = ()=>el("hr",{className:"wl-hr"});
+  const numOrStr = v => v==="" ? "" : (isFinite(+v) ? +v : v);
+
+  // ---- state ----
+  const SYSTEMS = systemOptions();
+  const state = {
+    record:{
+      site:"AHCC",
+      systemId: SYSTEMS[0]?.id || "",
+      systemType: SYSTEMS[0]?.type || "cooling_tower",
+      date:new Date().toISOString().slice(0,10),
+      time:new Date().toTimeString().slice(0,5),
+      operator:""
+    },
+    chemicals:[],
+    values:{}
+  };
+
+  // ---- UI root ----
+  const root = $("#wl-root");
+  const openBtn = $("#wl-open");
+  openBtn.onclick = ()=>{ root.style.display="block"; openBtn.style.display="none"; render(); };
+
+  function render(){
+    // refresh systems in case user edited in the main panel
+    const opts = systemOptions();
+    if (!opts.find(o=>o.id===state.record.systemId) && opts.length) {
+      state.record.systemId = opts[0].id;
+      state.record.systemType = opts[0].type;
+    }
+
+    root.innerHTML = "";
+    root.append(el("div",{className:"wl-h", innerText:"Water Log Entry"}));
+
+    // Record header
+    const rec = el("div",{className:"wl-row"});
+    rec.append(
+      fieldSelect("System", "systemId", opts.map(s=>s.id), state.record.systemId, (v)=>{
+        state.record.systemId = v;
+        state.record.systemType = (opts.find(s=>s.id===v)||{}).type || "cooling_tower";
+        render();
+      }),
+      fieldInput("Date","date","date",state.record.date,(v)=>state.record.date=v),
+      fieldInput("Time","time","time",state.record.time,(v)=>state.record.time=v),
+      fieldInput("Operator","operator","text",state.record.operator,(v)=>state.record.operator=v)
+    );
+    root.append(rec, hr());
+
+    // Dynamic fields
+    const type = state.record.systemType;
+    const spec = CONFIG_FIELDS.systems[type];
+    const rows = el("div",{});
+    (spec.show||[]).forEach(name=>{
+      if(name==="chemicals") { rows.append(chemicalsBlock()); return; }
+      if(spec.perSide && spec.perSide.includes(name)){
+        rows.append(perSideRow(name));
+      } else {
+        rows.append(singleRow(name));
+      }
+    });
+    root.append(rows, hr());
+
+    // Actions & preview
+    const actions = el("div",{className:"wl-row"});
+    const saveBtn = el("button",{className:"wl-btn primary",innerText:"Save to Browser (JSON)"});
+    saveBtn.onclick = saveLocal;
+    const sendBtn = el("button",{className:"wl-btn",innerText:"Send to Monthly Grid"});
+    sendBtn.onclick = sendToMonthlyGrid;
+    const clearBtn = el("button",{className:"wl-btn",innerText:"Clear"});
+    clearBtn.onclick = ()=>{ state.values={}; state.chemicals=[]; render(); };
+    actions.append(saveBtn, sendBtn, clearBtn);
+    root.append(actions);
+
+    // Preview
+    const preview = el("pre",{className:"wl-text",style:"white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:8px;border:1px solid #eee;margin-top:8px"});
+    preview.textContent = JSON.stringify(makePayload(), null, 2);
+    root.append(preview);
+
+    // Lightweight CSV row
+    const csv = el("div",{className:"wl-small",style:"margin-top:6px"});
+    csv.innerText = "CSV row (preview only): " + csvRow();
+    root.append(csv);
+  }
+
+  function singleRow(name){
+    const label = CONFIG_FIELDS.labels[name] || name;
+    const wrap = el("div",{className:"wl-row"});
+    wrap.append(fieldInput(label, name, "number", getVal(name) ?? "", (v)=> setVal(name, numOrStr(v))));
+    return wrap;
+  }
+  function perSideRow(name){
+    const label = CONFIG_FIELDS.labels[name] || name;
+    const eastKey = name+"_east";
+    const westKey = name+"_west";
+    const box = el("div",{});
+    box.append(el("div",{className:"wl-h",innerText:label}));
+    const r = el("div",{className:"wl-row"});
+    r.append(
+      fieldInput(label+" — East", eastKey, "number", getVal(eastKey) ?? "", v=>setVal(eastKey,numOrStr(v))),
+      fieldInput(label+" — West", westKey, "number", getVal(westKey) ?? "", v=>setVal(westKey,numOrStr(v)))
+    );
+    box.append(r);
+    return box;
+  }
+  function chemicalsBlock(){
+    const box = el("div",{});
+    box.append(el("div",{className:"wl-h",innerText:"Chemicals Added"}));
+    const list = el("div",{className:"wl-row"});
+    state.chemicals.forEach((c,i)=>{
+      const chip = el("div",{className:"wl-chip"});
+      chip.append(
+        el("span",{innerText:`${c.name||"?"} ${c.amount||""} ${c.unit||""}`}),
+        el("button",{className:"wl-btn",innerText:"✕",onclick:()=>{state.chemicals.splice(i,1);render();}})
+      );
+      list.append(chip);
+    });
+    box.append(list);
+
+    const row = el("div",{className:"wl-row"});
+    let tmp = {name:"",amount:"",unit:"",note:""};
+    row.append(
+      fieldInput("Name","chem_name","text","",v=>tmp.name=v),
+      fieldInput("Amount","chem_amt","number","",v=>tmp.amount=numOrStr(v)),
+      fieldInput("Unit","chem_unit","text","",v=>tmp.unit=v),
+      fieldInput("Note","chem_note","text","",v=>tmp.note=v)
+    );
+    const add = el("button",{className:"wl-btn",innerText:"Add Chemical",onclick:()=>{ state.chemicals.push({...tmp}); render(); }});
+    box.append(row, add);
+    return box;
+  }
+
+  // ---- small UI builders ----
+  function fieldInput(label, key, type, value, oninput){
+    const w = el("div",{});
+    if(label) w.append(el("div",{className:"wl-label",innerText:label}));
+    const i = el("input",{className:"wl-input",type, value});
+    i.oninput = (e)=>oninput(e.target.value);
+    w.append(i);
+    return w;
+  }
+  function fieldSelect(label, key, options, value, onchange){
+    const w = el("div",{});
+    w.append(el("div",{className:"wl-label",innerText:label}));
+    const s = el("select",{className:"wl-select"});
+    options.forEach(o=>{
+      const op = el("option",{value:o,innerText:o});
+      if(o===value) op.selected = true;
+      s.append(op);
+    });
+    s.onchange = (e)=>onchange(e.target.value);
+    w.append(s);
+    return w;
+  }
+
+  // ---- value getters/setters ----
+  const getVal = k => state.values[k];
+  const setVal = (k,v)=>{ state.values[k]=v; };
+
+  // ---- payload + local save ----
+  function makePayload(){
+    const payload = { record:{...state.record}, ...state.values };
+    if(payload.record.systemType!=="boiler" && state.chemicals.length) payload.chemicalsAdded = state.chemicals;
+    return payload;
+  }
+  function saveLocal(){
+    const key = "wl-entries";
+    const list = JSON.parse(localStorage.getItem(key)||"[]");
+    list.push(makePayload());
+    localStorage.setItem(key, JSON.stringify(list));
+    alert("Saved to this browser (JSON list).");
+  }
+
+  // ---- send into your Monthly Grid (DB) ----
+  function ensureArray(arr){ return Array.isArray(arr)?arr:[]; }
+  function addIfMissing(arr, val){ if(!arr.includes(val)) arr.push(val); }
+
+  function sendToMonthlyGrid(){
+    const p = makePayload();
+    if(!p.record.systemId){ alert('Pick a system.'); return; }
+    if(!p.record.date){ alert('Pick a date.'); return; }
+
+    const sys = p.record.systemId;
+    const ym  = p.record.date.slice(0,7);
+    const day = p.record.date.slice(8,10);
+
+    const CONFIG = loadConfig();
+    const DB = loadDB();
+
+    // Ensure base structures
+    CONFIG.bySystem = CONFIG.bySystem || {};
+    CONFIG.bySystem[sys] = CONFIG.bySystem[sys] || { points:["Form Entry"], fields:[] };
+
+    const cfg = CONFIG.bySystem[sys];
+    cfg.points = ensureArray(cfg.points);
+    cfg.fields = ensureArray(cfg.fields);
+
+    // Decide where to write:
+    // - If East/West values exist => use "East" and "West" points (create if needed)
+    // - Otherwise, use a single "Form Entry" point
+    const hasEW = Object.keys(p).some(k => /_(east|west)$/.test(k));
+    const pointsToUse = hasEW ? ["East","West"] : ["Form Entry"];
+    pointsToUse.forEach(pt => addIfMissing(cfg.points, pt));
+
+    // Build field names set from payload keys (friendly labels)
+    function fieldLabelForKey(k){
+      const base = k.replace(/_(east|west)$/,'');
+      return CONFIG_FIELDS.labels[base] || base;
+    }
+
+    const writeCell = (pt, label, value)=>{
+      addIfMissing(cfg.fields, label);
+      DB[sys] = DB[sys] || {};
+      DB[sys][ym] = DB[sys][ym] || {};
+      DB[sys][ym][day] = DB[sys][ym][day] || {};
+      DB[sys][ym][day][pt] = DB[sys][ym][day][pt] || {};
+      DB[sys][ym][day][pt][label] = (value===undefined || value===null) ? '' : value;
+    };
+
+    // Map payload -> grid cells
+    Object.keys(p).forEach(k=>{
+      if(k==="record" || k==="chemicalsAdded") return;
+      const v = p[k];
+      if(k.endsWith('_east')) { writeCell('East', fieldLabelForKey(k), v); }
+      else if(k.endsWith('_west')) { writeCell('West', fieldLabelForKey(k), v); }
+      else { writeCell('Form Entry', fieldLabelForKey(k), v); }
+    });
+
+    // Optionally persist a chemicals summary if present
+    if (Array.isArray(p.chemicalsAdded) && p.chemicalsAdded.length){
+      addIfMissing(cfg.fields, "Chemicals Added");
+      writeCell(hasEW ? 'East' : 'Form Entry', "Chemicals Added",
+        p.chemicalsAdded.map(c=>`${c.name||''}:${c.amount||''}${c.unit||''}`).join(' | ')
+      );
+    }
+
+    // Save and try to refresh main grid if it's on the same system & month
+    saveDB(DB); saveCONFIG(CONFIG);
+    try{
+      if (window.saveAll) window.saveAll(); // main app’s helper (no-op if absent)
+      if (window.systemSel && window.monthSel && window.buildGrid){
+        const selSys = window.systemSel.value;
+        const selYM  = window.monthSel.value;
+        if (selSys===sys && selYM===ym) window.buildGrid();
+      }
+    }catch(e){}
+
+    alert(`Sent to Monthly Grid: ${sys} — ${ym} (day ${day}).\nIf that grid is open for this system/month, it should now show the values.`);
+  }
+
+  // ---- CSV preview ----
+  function csvRow(){
+    const p = makePayload();
+    const flat = [];
+    const base = ["site","systemId","systemType","date","time","operator"];
+    base.forEach(k=>flat.push(p.record[k]??""));
+    const keys = Object.keys(p).filter(k=>k!=="record");
+    keys.forEach(k=>{
+      if(k==="chemicalsAdded") flat.push(p[k].map(c=>`${c.name}:${c.amount}${c.unit}`).join("|"));
+      else if(typeof p[k]==="object" && p[k]!==null) flat.push(JSON.stringify(p[k]));
+      else flat.push(p[k]??"");
+    });
+    return flat.map(x=> (x===undefined?"":String(x)).replace(/,/g,";") ).join(",");
+  }
+
+  // Auto-open if query ?openWaterLog=1
+  if(location.search.includes("openWaterLog=1")) { openBtn.click(); }
+})();
+</script>
 
 <script>
 (function(){
