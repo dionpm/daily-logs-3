@@ -47,6 +47,8 @@
   <!-- Firebase (optional) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- SheetJS (XLSX) for Excel exports -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #0f1320;
@@ -187,6 +189,17 @@
     .ok-cell { background: transparent; }
     /* Hide computed cells caret */
     .computed { user-select: none; }
+    /* Input used inside editable cells to improve caret behavior */
+    .cell-input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: inherit;
+      padding: 0;
+      margin: 0;
+      text-align: center;
+    }
     /* Print styles */
     @media print {
       body { background: #fff; color: #000; }
@@ -272,6 +285,15 @@
           </div>
           <div>
             <button id="buildMonthly">Build Grid</button>
+          </div>
+          <div>
+            <button id="monthlyPrint">Print/PDF</button>
+          </div>
+          <div>
+            <button id="monthlyExport">Export CSV</button>
+          </div>
+          <div>
+            <button id="monthlyExportExcel">Export Excel</button>
           </div>
         </div>
         <p class="note">Build a grid for the selected month. Values outside range are highlighted.</p>
@@ -867,8 +889,98 @@
       corner.className = 'sticky-col';
       corner.textContent = 'Point / Field';
       headerRow.appendChild(corner);
-      // Determine the set of fields for the system (assumes uniform across points)
+      // Determine whether to build a vertical or horizontal layout.  On small
+      // screens or when there are many fields, a vertical layout is easier
+      // to use on mobile devices.  We consider a layout vertical when
+      // the viewport width is <= 768px or the first point has more than 6
+      // fields.
       const firstPoint = Object.values(sys.points)[0];
+      const numPoints = Object.keys(sys.points).length;
+      const verticalLayout = window.innerWidth <= 768 || firstPoint.fields.length > 6 || numPoints > 1;
+      if (verticalLayout) {
+        container.innerHTML = '';
+        // Build a card for each point with fields listed vertically
+        Object.entries(sys.points).forEach(([ptName, ptObj]) => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.style.marginBottom = '12px';
+          const ptHeader = document.createElement('h3');
+          ptHeader.textContent = ptName;
+          card.appendChild(ptHeader);
+          const vtable = document.createElement('table');
+          const vtbody = document.createElement('tbody');
+          // For vertical layout we keep a reference to this table for each row
+          ptObj.fields.forEach((field, colIdx) => {
+            const vr = document.createElement('tr');
+            const thd = document.createElement('th');
+            thd.textContent = field;
+            thd.style.textAlign = 'left';
+            thd.style.paddingRight = '8px';
+            vr.appendChild(thd);
+            const td = document.createElement('td');
+            const isCalc = ptObj.calcField === field || ptObj.totalField === field;
+            let val = '';
+            if (logs[date] && logs[date][sysName] && logs[date][sysName][ptName] && logs[date][sysName][ptName][field] !== undefined) {
+              val = logs[date][sysName][ptName][field];
+            }
+            if (isCalc) {
+              td.classList.add('computed');
+              td.textContent = val;
+            } else {
+              // Editable fields use an input element to avoid caret reset issues
+              const inp = document.createElement('input');
+              inp.type = 'text';
+              inp.className = 'cell-input';
+              inp.value = val;
+              inp.addEventListener('input', () => {
+                const value = inp.value;
+                // Ensure nested objects exist
+                if (!logs[date]) logs[date] = {};
+                if (!logs[date][sysName]) logs[date][sysName] = {};
+                if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
+                logs[date][sysName][ptName][field] = value;
+                computeMakeupForPoint(date, sysName, ptName);
+                saveLogs();
+                // Update other fields for this point
+                ptObj.fields.forEach((f) => {
+                  const vVal = logs[date]?.[sysName]?.[ptName]?.[f] ?? '';
+                  // Find the row element for f
+                  const rows = vtbody.children;
+                  for (let r = 0; r < rows.length; r++) {
+                    const rowEl = rows[r];
+                    const label = rowEl.children[0].textContent;
+                    if (label === f) {
+                      const cell = rowEl.children[1];
+                      if (f !== field) {
+                        if (cell.classList.contains('computed')) {
+                          cell.textContent = vVal;
+                        } else if (cell.firstElementChild && cell.firstElementChild.classList.contains('cell-input')) {
+                          cell.firstElementChild.value = vVal;
+                        } else {
+                          cell.textContent = vVal;
+                        }
+                      }
+                      applyRangeClass(cell, sysName, f, vVal);
+                    }
+                  }
+                });
+                // Apply range class to the current cell based on new value
+                applyRangeClass(td, sysName, field, value);
+              });
+              td.appendChild(inp);
+            }
+            // Apply range class on initial render
+            applyRangeClass(td, sysName, field, val);
+            vr.appendChild(td);
+            vtbody.appendChild(vr);
+          });
+          vtable.appendChild(vtbody);
+          card.appendChild(vtable);
+          container.appendChild(card);
+        });
+        return;
+      }
+      // Horizontal layout (default): build header row of fields
       firstPoint.fields.forEach(field => {
         const th = document.createElement('th'); th.textContent = field; headerRow.appendChild(th);
       });
@@ -888,35 +1000,42 @@
           if (logs[date][sysName][ptName] && logs[date][sysName][ptName][field] !== undefined) {
             val = logs[date][sysName][ptName][field];
           }
-          // For meter/calculated fields, we handle differently
           if (isCalc) {
-            // Computed cells simply display the stored value
             td.classList.add('computed');
             td.textContent = val;
           } else {
-            // Editable cells use contentEditable.  On input we update only the
-            // affected row instead of re-rendering the entire grid.  This
-            // prevents iOS virtual keyboards from dismissing after a single
-            // keystroke.
-            td.contentEditable = true;
-            td.textContent = val;
-            td.addEventListener('input', () => {
-              const value = td.textContent.trim();
+            // Use an input element for editable cells to preserve caret position
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'cell-input';
+            inp.value = val;
+            inp.addEventListener('input', () => {
+              const value = inp.value;
               if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
               logs[date][sysName][ptName][field] = value;
               // Recompute deltas and totals for this point
               computeMakeupForPoint(date, sysName, ptName);
               saveLogs();
-              // Update all cells in the current row with latest values and
-              // range classes.  rowRef and ptObj are closed over from the
-              // outer scope.
+              // Update cells in the current row with the latest values.
               ptObj.fields.forEach((f, i) => {
                 const targetCell = rowRef.children[i + 1];
                 const v = logs[date]?.[sysName]?.[ptName]?.[f] ?? '';
-                targetCell.textContent = v;
+                if (f !== field) {
+                  // update target cell appropriately based on whether it's computed or contains input
+                  if (targetCell.classList.contains('computed')) {
+                    targetCell.textContent = v;
+                  } else if (targetCell.firstElementChild && targetCell.firstElementChild.classList.contains('cell-input')) {
+                    targetCell.firstElementChild.value = v;
+                  } else {
+                    targetCell.textContent = v;
+                  }
+                }
                 applyRangeClass(targetCell, sysName, f, v);
               });
+              // Apply range class on the current cell
+              applyRangeClass(td, sysName, field, value);
             });
+            td.appendChild(inp);
           }
           // Apply range class for initial render
           applyRangeClass(td, sysName, field, val);
@@ -983,6 +1102,86 @@
     function findPreviousDate(date) {
       const dates = Object.keys(logs).filter(d => d < date).sort();
       return dates.length ? dates[dates.length - 1] : null;
+    }
+
+    /**
+     * Export the current monthly view (selected system and month) to a CSV file.
+     * The CSV contains columns Date, Point, Field and Value and can be opened
+     * directly in Excel.  If no system is selected the function alerts the user.
+     */
+    function exportMonthlyCsv() {
+      const sysName = document.getElementById('monthlySystem').value;
+      const monthVal = document.getElementById('monthlyMonth').value;
+      if (!sysName || !monthVal) {
+        alert('Select a system and month first.');
+        return;
+      }
+      const [year, month] = monthVal.split('-');
+      const sysObj = config.systems[sysName];
+      if (!sysObj) return;
+      let csv = 'Date,Point,Field,Value\n';
+      // Iterate over each day of the month
+      const daysInMonth = new Date(year, month, 0).getDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dd = String(day).padStart(2, '0');
+        const dateStr = `${year}-${month}-${dd}`;
+        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
+          ptObj.fields.forEach(field => {
+            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
+            // Escape quotes
+            const safeVal = String(val).replace(/"/g, '""');
+            csv += `${dateStr},${ptName},"${field}","${safeVal}"\n`;
+          });
+        });
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // File name includes system and month for clarity
+      a.download = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Export the current monthly view (selected system and month) to an Excel
+     * file (.xlsx).  Uses SheetJS library loaded in the page.  The data
+     * structure is the same as the CSV export: each row contains Date,
+     * Point, Field and Value.  The resulting file opens directly in
+     * Microsoft Excel or other spreadsheet programs.
+     */
+    function exportMonthlyExcel() {
+      const sysName = document.getElementById('monthlySystem').value;
+      const monthVal = document.getElementById('monthlyMonth').value;
+      if (!sysName || !monthVal) {
+        alert('Select a system and month first.');
+        return;
+      }
+      const [year, month] = monthVal.split('-');
+      const sysObj = config.systems[sysName];
+      if (!sysObj) return;
+      // Build array of objects for SheetJS
+      const rows = [];
+      const daysInMonth = new Date(year, month, 0).getDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dd = String(day).padStart(2, '0');
+        const dateStr = `${year}-${month}-${dd}`;
+        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
+          ptObj.fields.forEach(field => {
+            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
+            rows.push({ Date: dateStr, Point: ptName, Field: field, Value: val });
+          });
+        });
+      }
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows, { header: ['Date','Point','Field','Value'] });
+      XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      const filename = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.xlsx`;
+      XLSX.writeFile(wb, filename);
     }
 
     /** Apply high/low range classes to cell. */
@@ -1153,6 +1352,20 @@
       document.getElementById('monthlySystem').addEventListener('change', buildMonthlyGrid);
       document.getElementById('monthlyMonth').addEventListener('change', buildMonthlyGrid);
       document.getElementById('buildMonthly').addEventListener('click', buildMonthlyGrid);
+
+      // Print the monthly grid (browser's print dialog, which can export to PDF)
+      document.getElementById('monthlyPrint').addEventListener('click', () => {
+        // Show only the monthly grid during print by adding a print class
+        window.print();
+      });
+      // Export the current monthly grid as a CSV file for Excel
+      document.getElementById('monthlyExport').addEventListener('click', () => {
+        exportMonthlyCsv();
+      });
+      // Export to Excel using SheetJS
+      document.getElementById('monthlyExportExcel').addEventListener('click', () => {
+        exportMonthlyExcel();
+      });
       // Storage mode
       document.getElementById('storageMode').addEventListener('change', (e) => {
         config.storage.mode = e.target.value;
