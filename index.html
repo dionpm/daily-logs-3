@@ -14,14 +14,18 @@
   body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto}
   header{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   header h1{font-size:18px;margin:0}
-  .wrap{max-width:1100px;margin:0 auto;padding:12px;display:grid;grid-template-columns:1fr;gap:12px}
-  @media (min-width:900px){ .wrap{grid-template-columns:320px 1fr;} }
+  nav.tabs{display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  .tab{padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:#0e1221;color:var(--ink);cursor:pointer}
+  .tab.active{background:#1a2040;border-color:#3a4370}
+  .wrap{max-width:1200px;margin:0 auto;padding:12px;display:grid;grid-template-columns:1fr;gap:12px}
+  @media (min-width:900px){ .wrap{grid-template-columns:360px 1fr;} }
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
   .card h2{font-size:16px;margin:0 0 8px}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
   input,select,button{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0e1221;color:var(--ink)}
   option{color:#000}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+  .toolbar > div{flex:1;min-width:160px}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .note{font-size:12px;color:var(--muted)}
   .warn{color:#ffd7d7}
@@ -32,12 +36,9 @@
   th{background:#11162a;color:#c7ceea;position:sticky;top:0;z-index:1}
   thead th.group{background:#10162b;font-weight:700}
   .sticky-col{position:sticky;left:0;background:#10162b;z-index:2}
-  .day-col{width:84px}
   .cell{min-width:64px}
   .cell[contenteditable="true"]{outline:none}
   .cell:focus{box-shadow:0 0 0 2px var(--accent) inset}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
-  .toolbar > div{flex:1;min-width:160px}
   .danger{border-color:var(--danger); color:#ffd7d7}
   @media print{
     body{background:#fff;color:#000}
@@ -48,20 +49,9 @@
     th{background:#eee;color:#000}
     .sticky-col{position:static;background:#fff}
   }
-
-  /* Water Log drop-in styles */
-  .wl-card{max-width:860px;margin:20px auto;padding:16px;border:1px solid #ddd;border-radius:10px;font-family:system-ui,Arial,sans-serif;background:#fff;color:#111}
-  .wl-row{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
-  .wl-row>div{flex:1;min-width:180px}
-  .wl-label{font-size:12px;font-weight:600;margin-bottom:4px}
-  .wl-input,.wl-select,.wl-text{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
-  .wl-h{font-size:18px;font-weight:700;margin:8px 0 4px}
-  .wl-hr{border:none;border-top:1px solid #eee;margin:12px 0}
-  .wl-btn{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f7f7f7;cursor:pointer}
-  .wl-btn.primary{background:#eef;border-color:#a8b7ff}
-  .wl-chip{display:inline-flex;gap:8px;align-items:center;border:1px solid #ddd;border-radius:16px;padding:4px 8px;margin:4px 4px 0 0}
-  .wl-small{font-size:11px;color:#666}
-  .wl-sticky{position:fixed;right:16px;bottom:16px;z-index:9999}
+  /* Daily grid styling */
+  .dayGrid th{position:static}
+  .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#0e1221;font-size:12px}
 </style>
 </head>
 <body>
@@ -70,15 +60,19 @@
     <span id="warn" class="note warn"></span>
   </header>
 
+  <nav class="tabs no-print">
+    <button id="tabDaily" class="tab active">Daily</button>
+    <button id="tabMonthly" class="tab">Monthly</button>
+  </nav>
+
   <div class="wrap">
+    <!-- LEFT: Setup + Edit (shared) -->
     <section class="card">
       <h2>Setup</h2>
       <div class="toolbar">
         <div>
           <label for="systemSel">System</label>
-          <select id="systemSel">
-            <option value="" disabled selected>-- Select System --</option>
-          </select>
+          <select id="systemSel"><option value="" disabled selected>-- Select System --</option></select>
           <div id="sysEmptyHint" class="hint" style="display:none;margin-top:6px">
             No systems yet. Click <b>Edit Systems</b> below to add one.
           </div>
@@ -90,19 +84,27 @@
             </div>
           </div>
         </div>
-        <div>
+        <div id="dailyInputs">
+          <label for="dateSel">Date</label>
+          <input type="date" id="dateSel" />
+          <div class="actions">
+            <button id="prevDay">◀ Prev</button>
+            <button id="nextDay">Next ▶</button>
+          </div>
+        </div>
+        <div id="monthlyInputs" style="display:none">
           <label for="monthSel">Month</label>
           <input type="month" id="monthSel" />
-        </div>
-        <div>
-          <button id="btnBuild">Build Grid</button>
+          <div class="actions">
+            <button id="btnBuild">Build Grid</button>
+          </div>
         </div>
       </div>
 
       <hr style="border-color:var(--border);margin:12px 0" />
 
-      <h2>Import / Export</h2>
-      <div class="actions">
+      <h2 class="no-print">Import / Export</h2>
+      <div class="actions no-print">
         <input type="file" id="importFile" accept=".json" />
         <button id="btnExportJSON">Export JSON</button>
         <button id="btnExportCSV">Export CSV</button>
@@ -110,7 +112,7 @@
         <button id="btnExportPDF">Export PDF</button>
         <button id="btnPrint">Print</button>
       </div>
-      <p class="note">Install this app (Add to Home Screen) for the best experience and offline use.</p>
+      <p class="note">Tip: Add to Home Screen for offline use.</p>
 
       <hr style="border-color:var(--border);margin:12px 0" />
 
@@ -135,32 +137,45 @@
       </div>
     </section>
 
-    <section class="card">
+    <!-- RIGHT: Views -->
+    <section class="card" id="viewDaily">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <h2 id="gridTitle">Monthly Grid</h2>
-        <span id="status" class="note no-print"></span>
+        <h2 id="dayTitle">Daily View</h2>
+        <span id="statusDaily" class="note"></span>
+      </div>
+      <div id="dayWrap" style="overflow:auto;max-height:70vh"></div>
+      <p class="note no-print" style="margin-top:8px">Edit cells for this day; it auto-saves to the same database the monthly view uses.</p>
+    </section>
+
+    <section class="card" id="viewMonthly" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h2 id="gridTitle">Monthly View</h2>
+        <span id="statusMonthly" class="note"></span>
       </div>
       <div id="gridWrap" style="overflow:auto;max-height:70vh"><table id="grid"></table></div>
-      <p class="note no-print" style="margin-top:8px">Tap a cell to edit. It auto-saves. Export to Excel/PDF for reporting.</p>
+      <p class="note no-print" style="margin-top:8px">Tap a cell to edit; it auto-saves.</p>
     </section>
   </div>
 
-  <!-- Water Log drop-in UI -->
-  <div id="wl-root" class="wl-card" style="display:none"></div>
-  <button id="wl-open" class="wl-btn wl-sticky">Open Water Log</button>
-
 <script>
-/* ===== Core App Script ===== */
-if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(console.error); }); }
-(function ensureMonthInput(){ const ip=document.getElementById('monthSel'); const t=document.createElement('input'); t.setAttribute('type','month'); if(t.type!=='month'){ ip.setAttribute('type','text'); ip.setAttribute('placeholder','YYYY-MM'); }})();
+/* ===== Service worker (optional) ===== */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(function(e){ /* ignore */ });
+  });
+}
 
+/* ===== Helpers ===== */
 function storageAvailable(type){try{var s=window[type],x='__t__';s.setItem(x,x);s.removeItem(x);return true;}catch(e){return false;}}
 const HAS_LS = storageAvailable('localStorage');
 document.getElementById('warn').textContent = HAS_LS ? '' : 'Private mode may limit saving.';
 
-// Keys
-const CONFIG_KEY='cfg_v2'; const DATA_KEY='db_v2';
-// Default seed aligned with your needs (you can rename later)
+function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* ===== Keys & Seed ===== */
+const CONFIG_KEY='cfg_v2';
+const DATA_KEY='db_v2';
 const SEED = {
   systems: ["Cooling Tower #1","Cooling Tower #2","Central Chilled Water","Central Hot Water","B Condensate Return","J Condensate Return","J Boiler - Laundry","J2 Boiler - Food Factory"],
   bySystem: {
@@ -174,126 +189,248 @@ const SEED = {
     "J2 Boiler - Food Factory":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Gallons","Manual Blowdown","CBD %","Softener #","Chlorine","Total Hardness","Alkalinity","pH","Sulfite","Conductivity","Phosphate","DEHA","Return Hardness","Comments"]}
   }
 };
-function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
 
+/* ===== State ===== */
 let CONFIG = null; let DB = {};
 try{ const c=localStorage.getItem(CONFIG_KEY); if(c) CONFIG=JSON.parse(c); const d=localStorage.getItem(DATA_KEY); if(d) DB=JSON.parse(d);}catch(e){}
 function isValidConfig(cfg){ return cfg && Array.isArray(cfg.systems) && cfg.systems.length>0 && cfg.bySystem && typeof cfg.bySystem==='object'; }
 const debugBox=document.getElementById('debugBox');
-
-// Auto-seed on first run if missing/invalid
 if(!isValidConfig(CONFIG)){ CONFIG = deepCopy(SEED); try{ localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG)); }catch(e){} }
 if(!isValidConfig(CONFIG)){ debugBox.style.display='block'; }
 
 function saveAll(){ try{ localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG)); localStorage.setItem(DATA_KEY, JSON.stringify(DB)); }catch(e){} }
-window.saveAll = saveAll; // expose for drop-in
+window.saveAll = saveAll;
 
-const systemSel=document.getElementById('systemSel'); const monthSel=document.getElementById('monthSel');
-const grid=document.getElementById('grid'); const gridTitle=document.getElementById('gridTitle'); const statusEl=document.getElementById('status');
+/* ===== UI Elements ===== */
+const systemSel=document.getElementById('systemSel');
+const dateSel=document.getElementById('dateSel');
+const monthSel=document.getElementById('monthSel');
+const sysEmptyHint=document.getElementById('sysEmptyHint');
+
+const tabDaily=document.getElementById('tabDaily');
+const tabMonthly=document.getElementById('tabMonthly');
+const viewDaily=document.getElementById('viewDaily');
+const viewMonthly=document.getElementById('viewMonthly');
+const dailyInputs=document.getElementById('dailyInputs');
+const monthlyInputs=document.getElementById('monthlyInputs');
+
+const dayWrap=document.getElementById('dayWrap');
+const statusDaily=document.getElementById('statusDaily');
+const grid=document.getElementById('grid');
+const gridTitle=document.getElementById('gridTitle');
+const statusMonthly=document.getElementById('statusMonthly');
+
 const toggleEdit=document.getElementById('toggleEdit'); const editPanel=document.getElementById('editPanel'); const doneEdit=document.getElementById('doneEdit');
 const editNameEl=document.getElementById('editingSystemName');
 const sysList=document.getElementById('sysList'); const pointList=document.getElementById('pointList'); const fieldList=document.getElementById('fieldList');
 const newSystem=document.getElementById('newSystem'); const addSystem=document.getElementById('addSystem');
 const newPoint=document.getElementById('newPoint'); const addPoint=document.getElementById('addPoint');
 const newField=document.getElementById('newField'); const addField=document.getElementById('addField');
-const btnExportJSON=document.getElementById('btnExportJSON'); const btnExportCSV=document.getElementById('btnExportCSV'); const btnExportXLS=document.getElementById('btnExportXLS'); const btnExportPDF=document.getElementById('btnExportPDF'); const btnPrint=document.getElementById('btnPrint'); const importFile=document.getElementById('importFile');
-const sysEmptyHint=document.getElementById('sysEmptyHint');
-const btnSeed=document.getElementById('btnSeed'); const btnReset=document.getElementById('btnReset');
 
+const btnSeed=document.getElementById('btnSeed'); const btnReset=document.getElementById('btnReset');
+const btnBuild=document.getElementById('btnBuild'); const importFile=document.getElementById('importFile');
+const btnExportJSON=document.getElementById('btnExportJSON'); const btnExportCSV=document.getElementById('btnExportCSV');
+const btnExportXLS=document.getElementById('btnExportXLS'); const btnExportPDF=document.getElementById('btnExportPDF'); const btnPrint=document.getElementById('btnPrint');
+const prevDay=document.getElementById('prevDay'); const nextDay=document.getElementById('nextDay');
+
+/* ===== Basic UI ===== */
 function refreshSystemSelect(){
   const has = CONFIG.systems && CONFIG.systems.length>0;
-  if(!has){ systemSel.innerHTML = '<option value="" disabled selected>-- No systems --</option>'; sysEmptyHint.style.display='block'; debugBox.style.display='block'; }
-  else{
-    const opts = ['<option value="" disabled selected>-- Select System --</option>'].concat(CONFIG.systems.map(s=>`<option>${s}</option>`));
-    systemSel.innerHTML = opts.join(''); sysEmptyHint.style.display='none'; debugBox.style.display='none';
+  if(!has){
+    systemSel.innerHTML = '<option value="" disabled selected>-- No systems --</option>';
+    sysEmptyHint.style.display='block'; debugBox.style.display='block';
+  } else {
+    var opts = ['<option value="" disabled selected>-- Select System --</option>'];
+    CONFIG.systems.forEach(function(s){ opts.push('<option>'+s+'</option>'); });
+    systemSel.innerHTML = opts.join('');
+    sysEmptyHint.style.display='none'; debugBox.style.display='none';
   }
 }
-function status(msg){ statusEl.textContent=msg; setTimeout(()=>statusEl.textContent='',1200); }
 
-function buildGrid(){
-  const sys=systemSel.value; const ym=monthSel.value;
+function setActiveTab(which){
+  if(which==='daily'){
+    tabDaily.classList.add('active'); tabMonthly.classList.remove('active');
+    viewDaily.style.display='block'; viewMonthly.style.display='none';
+    dailyInputs.style.display='block'; monthlyInputs.style.display='none';
+  } else {
+    tabMonthly.classList.add('active'); tabDaily.classList.remove('active');
+    viewMonthly.style.display='block'; viewDaily.style.display='none';
+    monthlyInputs.style.display='block'; dailyInputs.style.display='none';
+  }
+}
+
+tabDaily.addEventListener('click', function(){ setActiveTab('daily'); renderDaily(); });
+tabMonthly.addEventListener('click', function(){ setActiveTab('monthly'); if(systemSel.value&&monthSel.value){ buildMonthly(); } });
+
+/* ===== DAILY VIEW ===== */
+function statusD(msg){ statusDaily.textContent=msg; setTimeout(function(){statusDaily.textContent='';},1200); }
+function ymd(date){ return date.toISOString().slice(0,10); }
+function addDaysStr(ymdStr, delta){
+  var d=new Date(ymdStr); d.setDate(d.getDate()+delta);
+  var m=d.getMonth()+1; var day=d.getDate();
+  return d.getFullYear()+'-'+String(m).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+}
+
+function renderDaily(){
+  var sys=systemSel.value; var day=dateSel.value;
+  if(!sys || !day){ dayWrap.innerHTML='<p class="note">Pick a System and Date.</p>'; return; }
+  var cfg = CONFIG.bySystem[sys] || {points:["Point 1"], fields:["Value"]};
+  var points=cfg.points.slice(), fields=cfg.fields.slice();
+  var ym = day.slice(0,7); var dd = day.slice(8,10);
+
+  // Build a single-day table (Points × Fields)
+  var html = '<table class="dayGrid"><thead><tr><th class="sticky-col">Point</th>';
+  fields.forEach(function(f){ html += '<th>'+esc(f)+'</th>'; });
+  html += '</tr></thead><tbody>';
+  points.forEach(function(pt){
+    html += '<tr><th class="sticky-col">'+esc(pt)+'</th>';
+    fields.forEach(function(fd){
+      var val = (DB[sys]&&DB[sys][ym]&&DB[sys][ym][dd]&&DB[sys][ym][dd][pt]&&DB[sys][ym][dd][pt][fd]) || '';
+      html += '<td class="cell" contenteditable="true" data-point="'+esc(pt)+'" data-field="'+esc(fd)+'">'+esc(val)+'</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  dayWrap.innerHTML = html;
+
+  // Title
+  document.getElementById('dayTitle').innerHTML = 'Daily View — <span class="pill">'+esc(sys)+'</span> — <span class="pill">'+esc(day)+'</span>';
+
+  // Wire edits
+  var cells = dayWrap.querySelectorAll('.cell');
+  for(var i=0;i<cells.length;i++){
+    cells[i].addEventListener('blur', function(ev){
+      var td=ev.currentTarget, pt=td.getAttribute('data-point'), fd=td.getAttribute('data-field'), val=td.textContent.trim();
+      DB[sys]=DB[sys]||{}; DB[sys][ym]=DB[sys][ym]||{}; DB[sys][ym][dd]=DB[sys][ym][dd]||{}; DB[sys][ym][dd][pt]=DB[sys][ym][dd][pt]||{};
+      DB[sys][ym][dd][pt][fd]=val; saveAll(); statusD('Saved');
+    });
+  }
+}
+
+/* Prev/Next day buttons */
+prevDay.addEventListener('click', function(){
+  if(!dateSel.value) return;
+  dateSel.value = addDaysStr(dateSel.value, -1);
+  renderDaily();
+});
+nextDay.addEventListener('click', function(){
+  if(!dateSel.value) return;
+  dateSel.value = addDaysStr(dateSel.value, +1);
+  renderDaily();
+});
+
+/* ===== MONTHLY VIEW ===== */
+function statusM(msg){ statusMonthly.textContent=msg; setTimeout(function(){statusMonthly.textContent='';},1200); }
+function buildMonthly(){
+  var sys=systemSel.value; var ym=monthSel.value;
   if(!sys){ alert('Pick a system'); return; }
   if(!ym){ alert('Pick a month (YYYY-MM)'); return; }
-  const cfg = CONFIG.bySystem[sys] || {points:["Point 1"], fields:["Value"]};
-  const points=cfg.points.slice(), fields=cfg.fields.slice();
-  const days = new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+
+  var cfg = CONFIG.bySystem[sys] || {points:["Point 1"], fields:["Value"]};
+  var points=cfg.points.slice(), fields=cfg.fields.slice();
+  var days = new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+
   DB[sys]=DB[sys]||{}; DB[sys][ym]=DB[sys][ym]||{};
-  gridTitle.textContent = `${sys} — ${ym}`;
-  let html = '<thead><tr><th class="sticky-col day-col">Day</th>';
-  points.forEach(p=> html += `<th class="group" colspan="${fields.length}">${p}</th>`);
-  html += '</tr><tr><th class="sticky-col day-col">Date</th>';
-  points.forEach(p=> fields.forEach(f=> html += `<th>${f}</th>`));
+  gridTitle.textContent = sys + ' — ' + ym;
+
+  var html = '<thead><tr><th class="sticky-col">Day</th>';
+  points.forEach(function(p){ html += '<th class="group" colspan="'+fields.length+'">'+esc(p)+'</th>'; });
+  html += '</tr><tr><th class="sticky-col">Date</th>';
+  points.forEach(function(p){ fields.forEach(function(f){ html += '<th>'+esc(f)+'</th>'; }); });
   html += '</tr></thead><tbody>';
-  for(let d=1; d<=days; d++){
-    const ds=String(d).padStart(2,'0'); const dateStr=`${ym}-${ds}`; const row=DB[sys][ym][ds]||{};
-    html += `<tr data-day="${ds}"><th class="sticky-col day-col">${dateStr}</th>`;
-    points.forEach(pt=>{ const obj=row[pt]||{}; fields.forEach(fd=>{ const val=obj[fd] ?? ''; html += `<td class="cell" contenteditable="true" data-point="${pt}" data-field="${fd}">${val}</td>`; }); });
+
+  for(var d=1; d<=days; d++){
+    var ds=String(d).padStart(2,'0'); var dateStr=ym+'-'+ds; var row=DB[sys][ym][ds]||{};
+    html += '<tr data-day="'+ds+'"><th class="sticky-col">'+esc(dateStr)+'</th>';
+    points.forEach(function(pt){
+      var obj=row[pt]||{};
+      fields.forEach(function(fd){
+        var val = (obj[fd] != null) ? String(obj[fd]) : '';
+        html += '<td class="cell" contenteditable="true" data-point="'+esc(pt)+'" data-field="'+esc(fd)+'">'+esc(val)+'</td>';
+      });
+    });
     html += '</tr>';
   }
-  html += '</tbody>'; grid.innerHTML = html; grid.querySelectorAll('.cell').forEach(td=> td.addEventListener('blur', onCellEdit));
-}
-window.buildGrid = buildGrid;
+  html += '</tbody>';
+  grid.innerHTML = html;
 
-function onCellEdit(ev){
-  const td=ev.currentTarget, sys=systemSel.value, ym=monthSel.value, day=td.closest('tr').getAttribute('data-day'), pt=td.getAttribute('data-point'), fd=td.getAttribute('data-field'), val=td.textContent.trim();
-  DB[sys]=DB[sys]||{}; DB[sys][ym]=DB[sys][ym]||{}; DB[sys][ym][day]=DB[sys][ym][day]||{}; DB[sys][ym][day][pt]=DB[sys][ym][day][pt]||{}; DB[sys][ym][day][pt][fd]=val; saveAll(); status('Saved');
+  var cells = grid.querySelectorAll('.cell');
+  for(var i=0;i<cells.length;i++){
+    cells[i].addEventListener('blur', function(ev){
+      var td=ev.currentTarget, day=td.closest('tr').getAttribute('data-day'), pt=td.getAttribute('data-point'), fd=td.getAttribute('data-field'), val=td.textContent.trim();
+      DB[sys]=DB[sys]||{}; DB[sys][ym]=DB[sys][ym]||{}; DB[sys][ym][day]=DB[sys][ym][day]||{}; DB[sys][ym][day][pt]=DB[sys][ym][day][pt]||{};
+      DB[sys][ym][day][pt][fd]=val; saveAll(); statusM('Saved');
+    });
+  }
 }
-document.getElementById('btnBuild').addEventListener('click', buildGrid);
+window.buildMonthly = buildMonthly;
 
-// Edit isolation
+/* ===== Edit Config (same as before) ===== */
 let activeSysForEdit = null;
 function renderEdit(){
   if(!CONFIG.systems || CONFIG.systems.length===0){ activeSysForEdit = null; editNameEl.textContent = '(none)'; }
   else { activeSysForEdit = systemSel.value || CONFIG.systems[0]; editNameEl.textContent = activeSysForEdit; }
   sysList.innerHTML='';
-  (CONFIG.systems||[]).forEach((s,i)=>{
-    const li=document.createElement('li');
+
+  (CONFIG.systems||[]).forEach(function(s,i){
+    var li=document.createElement('li');
     li.style.display='flex'; li.style.gap='6px'; li.style.alignItems='center'; li.style.marginBottom='6px';
-    li.innerHTML = `<input value="${s}" data-i="${i}" class="sysName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />
-                    <button data-i="${i}" class="delSys danger" style="width:auto">Delete</button>`;
+    li.innerHTML = '<input value="'+esc(s)+'" data-i="'+i+'" class="sysName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />'
+                 + '<button data-i="'+i+'" class="delSys danger" style="width:auto">Delete</button>';
     sysList.appendChild(li);
   });
-  const cfg = activeSysForEdit ? (CONFIG.bySystem[activeSysForEdit] || {points:["Point 1"], fields:["Value"]}) : {points:[],fields:[]};
+
+  var cfg = activeSysForEdit ? (CONFIG.bySystem[activeSysForEdit] || {points:["Point 1"], fields:["Value"]}) : {points:[],fields:[]};
   pointList.innerHTML='';
-  cfg.points.forEach((p,i)=>{
-    const li=document.createElement('li');
+  cfg.points.forEach(function(p,i){
+    var li=document.createElement('li');
     li.style.display='flex'; li.style.gap='6px'; li.style.alignItems='center'; li.style.marginBottom='6px';
-    li.innerHTML = `<input value="${p}" data-i="${i}" class="ptName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />
-                    <button data-i="${i}" class="delPoint danger" style="width:auto">Delete</button>`;
+    li.innerHTML = '<input value="'+esc(p)+'" data-i="'+i+'" class="ptName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />'
+                 + '<button data-i="'+i+'" class="delPoint danger" style="width:auto">Delete</button>';
     pointList.appendChild(li);
   });
+
   fieldList.innerHTML='';
-  cfg.fields.forEach((f,i)=>{
-    const li=document.createElement('li');
+  cfg.fields.forEach(function(f,i){
+    var li=document.createElement('li');
     li.style.display='flex'; li.style.gap='6px'; li.style.alignItems='center'; li.style.marginBottom='6px';
-    li.innerHTML = `<input value="${f}" data-i="${i}" class="fdName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />
-                    <button data-i="${i}" class="delField danger" style="width:auto">Delete</button>`;
+    li.innerHTML = '<input value="'+esc(f)+'" data-i="'+i+'" class="fdName" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:#0e1221;color:#e8eaf6" />'
+                 + '<button data-i="'+i+'" class="delField danger" style="width:auto">Delete</button>';
     fieldList.appendChild(li);
   });
 }
-document.getElementById('toggleEdit').addEventListener('click', ()=>{ editPanel.style.display = editPanel.style.display==='none' ? 'block' : 'none'; if(editPanel.style.display==='block') renderEdit(); });
-doneEdit.addEventListener('click', ()=>{ editPanel.style.display='none'; saveAll(); refreshSystemSelect(); if(systemSel.value&&monthSel.value) buildGrid(); });
-addSystem.addEventListener('click', ()=>{
-  const name=newSystem.value.trim(); if(!name) return;
+
+document.getElementById('toggleEdit').addEventListener('click', function(){
+  editPanel.style.display = (editPanel.style.display==='none' || editPanel.style.display==='') ? 'block' : 'none';
+  if(editPanel.style.display==='block') renderEdit();
+});
+doneEdit.addEventListener('click', function(){
+  editPanel.style.display='none'; saveAll(); refreshSystemSelect();
+  if(systemSel.value && monthSel.value) buildMonthly();
+  if(systemSel.value && dateSel.value) renderDaily();
+});
+
+addSystem.addEventListener('click', function(){
+  var name=newSystem.value.trim(); if(!name) return;
   if(!CONFIG.systems) CONFIG.systems=[];
   if(!CONFIG.bySystem) CONFIG.bySystem={};
-  if(!CONFIG.systems.includes(name)){
+  if(CONFIG.systems.indexOf(name)===-1){
     CONFIG.systems.push(name); CONFIG.bySystem[name]={points:["Point 1"], fields:["Value"]};
     newSystem.value=''; saveAll(); refreshSystemSelect(); renderEdit();
   }
 });
-sysList.addEventListener('click', (ev)=>{
-  const btn=ev.target.closest('button.delSys'); if(!btn) return;
-  const i=+btn.dataset.i; const name=CONFIG.systems[i];
-  if(confirm(`Delete system "${name}"?`)){
+sysList.addEventListener('click', function(ev){
+  var btn=ev.target.closest('button.delSys'); if(!btn) return;
+  var i=+btn.dataset.i; var name=CONFIG.systems[i];
+  if(confirm('Delete system "'+name+'"?')){
     CONFIG.systems.splice(i,1); delete CONFIG.bySystem[name];
     if(activeSysForEdit===name){ activeSysForEdit=CONFIG.systems[0]||null; }
     saveAll(); refreshSystemSelect(); renderEdit();
   }
 });
-sysList.addEventListener('input', (ev)=>{
-  const ip=ev.target.closest('input.sysName'); if(!ip) return;
-  const i=+ip.dataset.i; const old=CONFIG.systems[i]; const neo=ip.value.trim();
+sysList.addEventListener('input', function(ev){
+  var ip=ev.target.closest('input.sysName'); if(!ip) return;
+  var i=+ip.dataset.i; var old=CONFIG.systems[i]; var neo=ip.value.trim();
   if(neo && neo!==old){
     CONFIG.systems[i]=neo; CONFIG.bySystem[neo]=CONFIG.bySystem[old]||{points:["Point 1"], fields:["Value"]};
     delete CONFIG.bySystem[old]; if(DB[old]){ DB[neo]=DB[old]; delete DB[old]; }
@@ -301,433 +438,143 @@ sysList.addEventListener('input', (ev)=>{
     saveAll(); refreshSystemSelect();
   }
 });
-addPoint.addEventListener('click', ()=>{
+addPoint.addEventListener('click', function(){
   if(!activeSysForEdit){ alert('Add/select a system first.'); return; }
-  const name=newPoint.value.trim(); if(!name) return;
+  var name=newPoint.value.trim(); if(!name) return;
   CONFIG.bySystem[activeSysForEdit]=CONFIG.bySystem[activeSysForEdit]||{points:[],fields:[]};
   CONFIG.bySystem[activeSysForEdit].points.push(name);
-  newPoint.value=''; saveAll(); renderEdit(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+  newPoint.value=''; saveAll(); renderEdit();
+  if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+  if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
 });
-pointList.addEventListener('click', (ev)=>{
-  const btn=ev.target.closest('button.delPoint'); if(!btn) return;
-  const idx=+btn.dataset.i; const arr=CONFIG.bySystem[activeSysForEdit].points; const name=arr[idx];
-  if(confirm(`Delete point "${name}"?`)){
-    arr.splice(idx,1); saveAll(); renderEdit(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+pointList.addEventListener('click', function(ev){
+  var btn=ev.target.closest('button.delPoint'); if(!btn) return;
+  var idx=+btn.dataset.i; var arr=CONFIG.bySystem[activeSysForEdit].points; var name=arr[idx];
+  if(confirm('Delete point "'+name+'"?')){
+    arr.splice(idx,1); saveAll(); renderEdit();
+    if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+    if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
   }
 });
-pointList.addEventListener('input', (ev)=>{
-  const ip=ev.target.closest('input.ptName'); if(!ip) return;
-  const idx=+ip.dataset.i; CONFIG.bySystem[activeSysForEdit].points[idx]=ip.value; saveAll(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+pointList.addEventListener('input', function(ev){
+  var ip=ev.target.closest('input.ptName'); if(!ip) return;
+  var idx=+ip.dataset.i; CONFIG.bySystem[activeSysForEdit].points[idx]=ip.value; saveAll();
+  if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+  if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
 });
-addField.addEventListener('click', ()=>{
+addField.addEventListener('click', function(){
   if(!activeSysForEdit){ alert('Add/select a system first.'); return; }
-  const name=newField.value.trim(); if(!name) return;
+  var name=newField.value.trim(); if(!name) return;
   CONFIG.bySystem[activeSysForEdit]=CONFIG.bySystem[activeSysForEdit]||{points:[],fields:[]};
   CONFIG.bySystem[activeSysForEdit].fields.push(name);
-  newField.value=''; saveAll(); renderEdit(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+  newField.value=''; saveAll(); renderEdit();
+  if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+  if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
 });
-fieldList.addEventListener('click', (ev)=>{
-  const btn=ev.target.closest('button.delField'); if(!btn) return;
-  const idx=+btn.dataset.i; const arr=CONFIG.bySystem[activeSysForEdit].fields; const name=arr[idx];
-  if(confirm(`Delete field "${name}"?`)){
-    arr.splice(idx,1); saveAll(); renderEdit(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+fieldList.addEventListener('click', function(ev){
+  var btn=ev.target.closest('button.delField'); if(!btn) return;
+  var idx=+btn.dataset.i; var arr=CONFIG.bySystem[activeSysForEdit].fields; var name=arr[idx];
+  if(confirm('Delete field "'+name+'"?')){
+    arr.splice(idx,1); saveAll(); renderEdit();
+    if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+    if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
   }
 });
-fieldList.addEventListener('input', (ev)=>{
-  const ip=ev.target.closest('input.fdName'); if(!ip) return;
-  const idx=+ip.dataset.i; CONFIG.bySystem[activeSysForEdit].fields[idx]=ip.value; saveAll(); if(systemSel.value===activeSysForEdit && monthSel.value) buildGrid();
+fieldList.addEventListener('input', function(ev){
+  var ip=ev.target.closest('input.fdName'); if(!ip) return;
+  var idx=+ip.dataset.i; CONFIG.bySystem[activeSysForEdit].fields[idx]=ip.value; saveAll();
+  if(systemSel.value===activeSysForEdit && monthSel.value) buildMonthly();
+  if(systemSel.value===activeSysForEdit && dateSel.value) renderDaily();
 });
 
-// Export/Import/Print
-btnExportJSON.addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify({CONFIG,DB},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='daily_test_log_backup.json'; a.click(); URL.revokeObjectURL(a.href); });
-btnExportCSV.addEventListener('click', ()=>{
-  const sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
-  const {points,fields}=(CONFIG.bySystem[sys]||{points:[],fields:[]}); const days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
-  const headers=['Date']; points.forEach(p=>fields.forEach(f=>headers.push(`${p} — ${f}`))); const lines=[headers.join(',')];
-  for(let d=1; d<=days; d++){ const ds=String(d).padStart(2,'0'); const dateStr=`${ym}-${ds}`; const row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{}; const cells=[dateStr];
-    points.forEach(pt=>fields.forEach(fd=>{ const v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; cells.push(/[" ,\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v); })); lines.push(cells.join(',')); }
-  const blob=new Blob([lines.join('\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${sys} ${ym}.csv`; a.click(); URL.revokeObjectURL(a.href);
+/* ===== Export/Import/Print ===== */
+btnExportJSON.addEventListener('click', function(){
+  var blob=new Blob([JSON.stringify({CONFIG,DB},null,2)],{type:'application/json'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='daily_test_log_backup.json'; a.click(); URL.revokeObjectURL(a.href);
 });
-btnExportXLS.addEventListener('click', ()=>{
-  const sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
-  const {points,fields}=(CONFIG.bySystem[sys]||{points:[],fields:[]}); const days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
-  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  let html = '<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>Date</th>';
-  points.forEach(p=>fields.forEach(f=>{ html+=`<th>${esc(p)} - ${esc(f)}</th>`; })); html+='</tr>';
-  for(let d=1; d<=days; d++){ const ds=String(d).padStart(2,'0'); const dateStr=`${ym}-${ds}`; const row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{};
-    html+=`<tr><td>${esc(dateStr)}</td>`; points.forEach(pt=>fields.forEach(fd=>{ const v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; html+=`<td>${esc(v)}</td>`; })); html+='</tr>'; }
-  html+='</table></body></html>'; const blob=new Blob([html],{type:'application/vnd.ms-excel'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${sys} ${ym}.xls`; a.click(); URL.revokeObjectURL(a.href);
+btnExportCSV.addEventListener('click', function(){
+  var sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
+  var cfg = CONFIG.bySystem[sys] || {points:[],fields:[]};
+  var points=cfg.points, fields=cfg.fields; var days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
+  var headers=['Date']; points.forEach(function(p){fields.forEach(function(f){headers.push(p+' — '+f);});}); var lines=[headers.join(',')];
+  for(var d=1; d<=days; d++){
+    var ds=String(d).padStart(2,'0'); var dateStr=ym+'-'+ds; var row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{}; var cells=[dateStr];
+    points.forEach(function(pt){fields.forEach(function(fd){
+      var v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; cells.push(/[" ,\n]/.test(v)?('"'+v.replace(/"/g,'""')+'"'):v);
+    });});
+    lines.push(cells.join(','));
+  }
+  var blob=new Blob([lines.join('\n')],{type:'text/csv'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=sys+' '+ym+'.csv'; a.click(); URL.revokeObjectURL(a.href);
 });
-btnExportPDF.addEventListener('click', ()=>{
-  const sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
-  const {points,fields}=(CONFIG.bySystem[sys]||{points:[],fields:[]}); const days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
-  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(sys)} ${esc(ym)} Report</title>
-  <style>body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;}h1{font-size:18px;margin:0 0 12px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:6px 8px;font-size:12px;text-align:center}th{background:#eee}.meta{margin:0 0 12px;font-size:12px}</style></head><body>`;
-  html += `<h1>${esc(sys)} — ${esc(ym)} Report</h1><div class="meta">Generated ${new Date().toLocaleString()}</div><table><tr><th>Date</th>`;
-  points.forEach(p=>fields.forEach(f=>{ html+=`<th>${esc(p)} - ${esc(f)}</th>`; })); html+='</tr>';
-  for(let d=1; d<=days; d++){ const ds=String(d).padStart(2,'0'); const dateStr=`${ym}-${ds}`; const row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{};
-    html+=`<tr><td>${esc(dateStr)}</td>`; points.forEach(pt=>fields.forEach(fd=>{ const v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; html+=`<td>${esc(v)}</td>`; })); html+='</tr>'; }
-  html+='</table></body></html>'; const w=window.open('','_blank'); w.document.open(); w.document.write(html); w.document.close(); w.focus(); w.print();
+btnExportXLS.addEventListener('click', function(){
+  var sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
+  var cfg = CONFIG.bySystem[sys] || {points:[],fields:[]};
+  var points=cfg.points, fields=cfg.fields; var days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
+  var html = '<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>Date</th>';
+  points.forEach(function(p){fields.forEach(function(f){ html+='<th>'+esc(p)+' - '+esc(f)+'</th>'; });}); html+='</tr>';
+  for(var d=1; d<=days; d++){
+    var ds=String(d).padStart(2,'0'); var dateStr=ym+'-'+ds; var row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{};
+    html+='<tr><td>'+esc(dateStr)+'</td>'; points.forEach(function(pt){fields.forEach(function(fd){
+      var v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; html+='<td>'+esc(v)+'</td>';
+    });}); html+='</tr>';
+  }
+  html+='</table></body></html>';
+  var blob=new Blob([html],{type:'application/vnd.ms-excel'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=sys+' '+ym+'.xls'; a.click(); URL.revokeObjectURL(a.href);
 });
-btnPrint.addEventListener('click', ()=> window.print());
+btnExportPDF.addEventListener('click', function(){
+  var sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
+  var cfg = CONFIG.bySystem[sys] || {points:[],fields:[]};
+  var points=cfg.points, fields=cfg.fields; var days=new Date(+ym.slice(0,4),+ym.slice(5,7),0).getDate();
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(sys)+' '+esc(ym)+' Report</title>'
+  +'<style>body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;}h1{font-size:18px;margin:0 0 12px}table{width:100%;border-collapse:collapse}'
+  +'th,td{border:1px solid #000;padding:6px 8px;font-size:12px;text-align:center}th{background:#eee}.meta{margin:0 0 12px;font-size:12px}</style></head><body>';
+  html += '<h1>'+esc(sys)+' — '+esc(ym)+' Report</h1><div class="meta">Generated '+new Date().toLocaleString()+'</div><table><tr><th>Date</th>';
+  points.forEach(function(p){fields.forEach(function(f){ html+='<th>'+esc(p)+' - '+esc(f)+'</th>'; });}); html+='</tr>';
+  for(var d=1; d<=days; d++){
+    var ds=String(d).padStart(2,'0'); var dateStr=ym+'-'+ds; var row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{};
+    html+='<tr><td>'+esc(dateStr)+'</td>'; points.forEach(function(pt){fields.forEach(function(fd){
+      var v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; html+='<td>'+esc(v)+'</td>';
+    });}); html+='</tr>';
+  }
+  html+='</table></body></html>';
+  var w=window.open('','_blank'); w.document.open(); w.document.write(html); w.document.close(); w.focus(); w.print();
+});
+btnPrint.addEventListener('click', function(){ window.print(); });
 
-importFile.addEventListener('change', async(ev)=>{
-  const f=ev.target.files[0]; if(!f) return;
-  const text=await f.text();
-  try{ const obj=JSON.parse(text); if(obj.CONFIG&&obj.DB){ CONFIG=obj.CONFIG; DB=obj.DB; saveAll(); refreshSystemSelect(); if(systemSel.value&&monthSel.value) buildGrid(); } else throw new Error('Expected JSON with {CONFIG, DB}'); }
-  catch(e){ alert('Import failed: '+e.message); }
-  finally{ importFile.value=''; }
-});
-
-btnSeed.addEventListener('click', ()=>{ CONFIG = deepCopy(SEED); saveAll(); refreshSystemSelect(); alert('Defaults loaded. Pick a system and month.'); });
-btnReset.addEventListener('click', async()=>{
+/* ===== Seed/Reset ===== */
+btnSeed.addEventListener('click', function(){ CONFIG = deepCopy(SEED); saveAll(); refreshSystemSelect(); alert('Defaults loaded. Pick a system and date/month.'); });
+btnReset.addEventListener('click', function(){
   try{
     localStorage.removeItem(CONFIG_KEY); localStorage.removeItem(DATA_KEY);
-    if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); for(const r of regs){ try{ await r.unregister(); }catch(e){} } }
-    caches && caches.keys && caches.keys().then(keys=>keys.forEach(k=>caches.delete(k)));
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistrations().then(function(regs){ regs.forEach(function(r){ r.unregister().catch(function(){}); }); });
+    }
+    if(window.caches && window.caches.keys){
+      caches.keys().then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); });
+    }
     alert('Reset complete. Reloading...'); location.reload();
   }catch(e){ alert('Reset error: '+e.message); }
 });
 
-function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length>0) return; editPanel.style.display='block'; renderEdit(); }
+/* ===== System & Date/Month wiring ===== */
+systemSel.addEventListener('change', function(){
+  if(dateSel.value) renderDaily();
+  if(monthSel.value) buildMonthly();
+});
+dateSel.addEventListener('change', renderDaily);
+btnBuild.addEventListener('click', buildMonthly);
+
+/* ===== Init ===== */
 (function init(){
   refreshSystemSelect();
-  const now=new Date(); monthSel.value = now.toISOString().slice(0,7);
-  ensureHasAtLeastOneSystem();
-  if(new URL(location.href).searchParams.get('reset')==='1'){ btnReset.click(); }
-})();
-</script>
-
-<script>
-/* ===== Water Log Drop-in: pulls systems from CONFIG & writes into DB ===== */
-(function(){
-  const CFG_KEY = 'cfg_v2';
-  const DB_KEY  = 'db_v2';
-
-  function loadConfig() {
-    try {
-      if (window.CONFIG && window.CONFIG.systems) return window.CONFIG;
-      const raw = localStorage.getItem(CFG_KEY);
-      return raw ? JSON.parse(raw) : { systems: [], bySystem: {} };
-    } catch(e){ return { systems: [], bySystem: {} }; }
-  }
-  function loadDB() {
-    try { return JSON.parse(localStorage.getItem(DB_KEY) || '{}'); } catch(e){ return {}; }
-  }
-  function saveDB(DB){ try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch(e){} }
-  function saveCONFIG(CONFIG){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CONFIG)); } catch(e){} }
-
-  function inferType(name){
-    const n = (name||'').toLowerCase();
-    if (n.includes('cool') || n.includes('tower')) return 'cooling_tower';
-    if (n.includes('chill')) return 'chilled_water';
-    if (n.includes('hot')) return 'hot_water';
-    if (n.includes('condens')) return 'condensate_return';
-    if (n.includes('boiler') || n.includes('j2') || n.includes('laundry') || n.includes('food')) return 'boiler';
-    return 'cooling_tower';
-  }
-  function systemOptions(){
-    const CONFIG = loadConfig();
-    return (CONFIG.systems||[]).map(name => ({ id:name, type: inferType(name) }));
-  }
-
-  const CONFIG_FIELDS = {
-    labels:{
-      pH:"pH",
-      totalHardness:"Total Hardness (ppm as CaCO3)",
-      conductivity:"Conductivity (µS/cm)",
-      orp:"ORP (mV)",
-      meterM:"M (meter index)",
-      ptsa:"PTSA (ppb)",
-      nitrite:"Nitrite (ppm)",
-      tds:"Total Dissolved Solids (ppm)",
-      gallons:"Gallons (feed)",
-      manualBlowdown:"Manual Blowdown (e.g., '10 sec')",
-      continuousBlowdown:"Continuous Blowdown (CBD, %)",
-      softenerNumber:"Softener #",
-      chlorine:"Chlorine (ppm)",
-      alkalinity:"Alkalinity (ppm as CaCO3)",
-      sulfite:"Sulfite (ppm as SO3)",
-      phosphate:"Phosphate (ppm as PO4)",
-      deha:"DEHA (ppm)",
-      returnHardness:"Return Hardness (ppm)",
-      comments:"Comments",
-    },
-    systems:{
-      condensate_return:{
-        show:["pH","totalHardness","conductivity"],
-        perSide:["pH","totalHardness","conductivity"]
-      },
-      cooling_tower:{
-        show:["pH","orp","meterM","totalHardness","ptsa","conductivity","chemicals","comments"]
-      },
-      chilled_water:{
-        show:["nitrite","tds","pH","totalHardness","chemicals","comments"],
-        hide:["conductivity"]
-      },
-      hot_water:{
-        show:["nitrite","tds","pH","totalHardness","chemicals","comments"]
-      },
-      boiler:{
-        show:[
-          "gallons","manualBlowdown","continuousBlowdown","softenerNumber",
-          "chlorine","totalHardness","alkalinity","pH","sulfite",
-          "conductivity","phosphate","deha","returnHardness","comments"
-        ],
-        hide:["chemicals"]
-      }
-    }
-  };
-
-  const $ = (sel, el=document)=>el.querySelector(sel);
-  const el = (tag, props={})=>{ const node=document.createElement(tag); Object.assign(node, props); return node; };
-  const hr = ()=>el("hr",{className:"wl-hr"});
-  const numOrStr = v => v==="" ? "" : (isFinite(+v) ? +v : v);
-
-  const SYSTEMS = systemOptions();
-  const state = {
-    record:{
-      site:"AHCC",
-      systemId: SYSTEMS[0]?.id || "",
-      systemType: SYSTEMS[0]?.type || "cooling_tower",
-      date:new Date().toISOString().slice(0,10),
-      time:new Date().toTimeString().slice(0,5),
-      operator:""
-    },
-    chemicals:[],
-    values:{}
-  };
-
-  const root = $("#wl-root");
-  const openBtn = $("#wl-open");
-  openBtn.onclick = ()=>{ root.style.display="block"; openBtn.style.display="none"; render(); };
-
-  function render(){
-    const opts = systemOptions();
-    if (!opts.find(o=>o.id===state.record.systemId) && opts.length) {
-      state.record.systemId = opts[0].id;
-      state.record.systemType = opts[0].type;
-    }
-
-    root.innerHTML = "";
-    root.append(el("div",{className:"wl-h", innerText:"Water Log Entry"}));
-
-    const rec = el("div",{className:"wl-row"});
-    rec.append(
-      fieldSelect("System", "systemId", opts.map(s=>s.id), state.record.systemId, (v)=>{
-        state.record.systemId = v;
-        state.record.systemType = (opts.find(s=>s.id===v)||{}).type || "cooling_tower";
-        render();
-      }),
-      fieldInput("Date","date","date",state.record.date,(v)=>state.record.date=v),
-      fieldInput("Time","time","time",state.record.time,(v)=>state.record.time=v),
-      fieldInput("Operator","operator","text",state.record.operator,(v)=>state.record.operator=v)
-    );
-    root.append(rec, hr());
-
-    const type = state.record.systemType;
-    const spec = CONFIG_FIELDS.systems[type];
-    const rows = el("div",{});
-    (spec.show||[]).forEach(name=>{
-      if(name==="chemicals") { rows.append(chemicalsBlock()); return; }
-      if(spec.perSide && spec.perSide.includes(name)){
-        rows.append(perSideRow(name));
-      } else {
-        rows.append(singleRow(name));
-      }
-    });
-    root.append(rows, hr());
-
-    const actions = el("div",{className:"wl-row"});
-    const saveBtn = el("button",{className:"wl-btn primary",innerText:"Save to Browser (JSON)"});
-    saveBtn.onclick = saveLocal;
-    const sendBtn = el("button",{className:"wl-btn",innerText:"Send to Monthly Grid"});
-    sendBtn.onclick = sendToMonthlyGrid;
-    const clearBtn = el("button",{className:"wl-btn",innerText:"Clear"});
-    clearBtn.onclick = ()=>{ state.values={}; state.chemicals=[]; render(); };
-    actions.append(saveBtn, sendBtn, clearBtn);
-    root.append(actions);
-
-    const preview = el("pre",{className:"wl-text",style:"white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:8px;border:1px solid #eee;margin-top:8px"});
-    preview.textContent = JSON.stringify(makePayload(), null, 2);
-    root.append(preview);
-
-    const csv = el("div",{className:"wl-small",style:"margin-top:6px"});
-    csv.innerText = "CSV row (preview only): " + csvRow();
-    root.append(csv);
-  }
-
-  function fieldInput(label, key, type, value, oninput){
-    const w = el("div",{});
-    if(label) w.append(el("div",{className:"wl-label",innerText:label}));
-    const i = el("input",{className:"wl-input",type, value});
-    i.oninput = (e)=>oninput(e.target.value);
-    w.append(i);
-    return w;
-  }
-  function fieldSelect(label, key, options, value, onchange){
-    const w = el("div",{});
-    w.append(el("div",{className:"wl-label",innerText:label}));
-    const s = el("select",{className:"wl-select"});
-    options.forEach(o=>{
-      const op = el("option",{value:o,innerText:o});
-      if(o===value) op.selected = true;
-      s.append(op);
-    });
-    s.onchange = (e)=>onchange(e.target.value);
-    w.append(s);
-    return w;
-  }
-
-  function singleRow(name){
-    const label = CONFIG_FIELDS.labels[name] || name;
-    const wrap = el("div",{className:"wl-row"});
-    wrap.append(fieldInput(label, name, "number", getVal(name) ?? "", (v)=> setVal(name, numOrStr(v))));
-    return wrap;
-  }
-  function perSideRow(name){
-    const label = CONFIG_FIELDS.labels[name] || name;
-    const eastKey = name+"_east";
-    const westKey = name+"_west";
-    const box = el("div",{});
-    box.append(el("div",{className:"wl-h",innerText:label}));
-    const r = el("div",{className:"wl-row"});
-    r.append(
-      fieldInput(label+" — East", eastKey, "number", getVal(eastKey) ?? "", v=>setVal(eastKey,numOrStr(v))),
-      fieldInput(label+" — West", westKey, "number", getVal(westKey) ?? "", v=>setVal(westKey,numOrStr(v)))
-    );
-    box.append(r);
-    return box;
-  }
-  function chemicalsBlock(){
-    const box = el("div",{});
-    box.append(el("div",{className:"wl-h",innerText:"Chemicals Added"}));
-    const list = el("div",{className:"wl-row"});
-    state.chemicals.forEach((c,i)=>{
-      const chip = el("div",{className:"wl-chip"});
-      chip.append(
-        el("span",{innerText:`${c.name||"?"} ${c.amount||""} ${c.unit||""}`}),
-        el("button",{className:"wl-btn",innerText:"✕",onclick:()=>{state.chemicals.splice(i,1);render();}})
-      );
-      list.append(chip);
-    });
-    box.append(list);
-
-    const row = el("div",{className:"wl-row"});
-    let tmp = {name:"",amount:"",unit:"",note:""};
-    row.append(
-      fieldInput("Name","chem_name","text","",v=>tmp.name=v),
-      fieldInput("Amount","chem_amt","number","",v=>tmp.amount=numOrStr(v)),
-      fieldInput("Unit","chem_unit","text","",v=>tmp.unit=v),
-      fieldInput("Note","chem_note","text","",v=>tmp.note=v)
-    );
-    const add = el("button",{className:"wl-btn",innerText:"Add Chemical",onclick:()=>{ state.chemicals.push({...tmp}); render(); }});
-    box.append(row, add);
-    return box;
-  }
-
-  const getVal = k => state.values[k];
-  const setVal = (k,v)=>{ state.values[k]=v; };
-
-  function makePayload(){
-    const payload = { record:{...state.record}, ...state.values };
-    if(payload.record.systemType!=="boiler" && state.chemicals.length) payload.chemicalsAdded = state.chemicals;
-    return payload;
-  }
-  function saveLocal(){
-    const key = "wl-entries";
-    const list = JSON.parse(localStorage.getItem(key)||"[]");
-    list.push(makePayload());
-    localStorage.setItem(key, JSON.stringify(list));
-    alert("Saved to this browser (JSON list).");
-  }
-
-  function ensureArray(arr){ return Array.isArray(arr)?arr:[]; }
-  function addIfMissing(arr, val){ if(!arr.includes(val)) arr.push(val); }
-
-  function sendToMonthlyGrid(){
-    const p = makePayload();
-    if(!p.record.systemId){ alert('Pick a system.'); return; }
-    if(!p.record.date){ alert('Pick a date.'); return; }
-
-    const sys = p.record.systemId;
-    const ym  = p.record.date.slice(0,7);
-    const day = p.record.date.slice(8,10);
-
-    const CONFIG = loadConfig();
-    const DB = loadDB();
-
-    CONFIG.bySystem = CONFIG.bySystem || {};
-    CONFIG.bySystem[sys] = CONFIG.bySystem[sys] || { points:["Form Entry"], fields:[] };
-
-    const cfg = CONFIG.bySystem[sys];
-    cfg.points = ensureArray(cfg.points);
-    cfg.fields = ensureArray(cfg.fields);
-
-    const hasEW = Object.keys(p).some(k => /_(east|west)$/.test(k));
-    const pointsToUse = hasEW ? ["East","West"] : ["Form Entry"];
-    pointsToUse.forEach(pt => addIfMissing(cfg.points, pt));
-
-    function fieldLabelForKey(k){
-      const base = k.replace(/_(east|west)$/,'');
-      return CONFIG_FIELDS.labels[base] || base;
-    }
-
-    const writeCell = (pt, label, value)=>{
-      addIfMissing(cfg.fields, label);
-      DB[sys] = DB[sys] || {};
-      DB[sys][ym] = DB[sys][ym] || {};
-      DB[sys][ym][day] = DB[sys][ym][day] || {};
-      DB[sys][ym][day][pt] = DB[sys][ym][day][pt] || {};
-      DB[sys][ym][day][pt][label] = (value===undefined || value===null) ? '' : value;
-    };
-
-    Object.keys(p).forEach(k=>{
-      if(k==="record" || k==="chemicalsAdded") return;
-      const v = p[k];
-      if(k.endsWith('_east')) { writeCell('East', fieldLabelForKey(k), v); }
-      else if(k.endsWith('_west')) { writeCell('West', fieldLabelForKey(k), v); }
-      else { writeCell('Form Entry', fieldLabelForKey(k), v); }
-    });
-
-    if (Array.isArray(p.chemicalsAdded) && p.chemicalsAdded.length){
-      addIfMissing(cfg.fields, "Chemicals Added");
-      writeCell(hasEW ? 'East' : 'Form Entry', "Chemicals Added",
-        p.chemicalsAdded.map(c=>`${c.name||''}:${c.amount||''}${c.unit||''}`).join(' | ')
-      );
-    }
-
-    saveDB(DB); saveCONFIG(CONFIG);
-    try{
-      if (window.saveAll) window.saveAll();
-      if (window.systemSel && window.monthSel && window.buildGrid){
-        const selSys = window.systemSel.value;
-        const selYM  = window.monthSel.value;
-        if (selSys===sys && selYM===ym) window.buildGrid();
-      }
-    }catch(e){}
-
-    alert(`Sent to Monthly Grid: ${sys} — ${ym} (day ${day}).`);
-  }
-
-  function csvRow(){
-    const p = makePayload();
-    const flat = [];
-    const base = ["site","systemId","systemType","date","time","operator"];
-    base.forEach(k=>flat.push(p.record[k]??""));
-    const keys = Object.keys(p).filter(k=>k!=="record");
-    keys.forEach(k=>{
-      if(k==="chemicalsAdded") flat.push(p[k].map(c=>`${c.name}:${c.amount}${c.unit}`).join("|"));
-      else if(typeof p[k]==="object" && p[k]!==null) flat.push(JSON.stringify(p[k]));
-      else flat.push(p[k]??"");
-    });
-    return flat.map(x=> (x===undefined?"":String(x)).replace(/,/g,";") ).join(",");
-  }
-
-  const rootEl = document.getElementById('wl-root');
-  const openBtnEl = document.getElementById('wl-open');
-  if(location.search.includes("openWaterLog=1")) { openBtnEl.click(); }
+  var now=new Date();
+  // default Daily view
+  setActiveTab('daily');
+  // date default today
+  var m=now.getMonth()+1, d=now.getDate();
+  dateSel.value = now.getFullYear()+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+  // month default
+  monthSel.value = now.toISOString().slice(0,7);
 })();
 </script>
 </body>
