@@ -1,244 +1,1023 @@
-
 <!DOCTYPE html>
 <html lang="en">
+<!--
+  Daily Logs Application
+
+  This single‑file web app implements a simple logging tool for
+  water/boiler/cooling tower operations.  It is designed to run
+  entirely in the browser and persist data either locally (via
+  localStorage) or remotely via Firebase Firestore.  The goal is
+  to support multiple users entering daily test values, track
+  meter readings with automatic makeup calculations, highlight
+  values that fall outside of user‑defined ranges, and provide a
+  basic trending interface.
+
+  Features:
+    • Daily view for entering readings for a single date.  Users
+      select a system (e.g. Cooling Tower 1, Chilled Loop) and a
+      date.  The app builds a grid of points (equipment) and
+      fields (readings) where values can be typed in.  For fields
+      designated as meter readings, the app automatically
+      calculates delta (makeup) and a running total for the month.
+    • Monthly view that builds a table spanning the entire
+      month with days across columns and point/field rows.  This
+      is useful for printing or reviewing a month at a glance.
+    • Settings tab where administrators can add/edit systems,
+      points and fields, define high/low ranges for each field,
+      and switch between local and Firebase storage.  A short
+      Firebase configuration form is provided – paste your
+      project details here to enable multi‑user sync.
+    • Trends tab that renders a line chart (via Chart.js) for
+      any point/field over a date range.  This allows quick
+      inspection of trends without exporting to a spreadsheet.
+
+  The application stores its configuration under the key
+  `dailyLogConfig` and daily logs under `dailyLogData` in
+  localStorage.  When Firebase is enabled the same structures are
+  persisted to Firestore under the provided namespace.
+
+  Written August 2025.
+-->
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>Daily Test Log</title>
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0f1320">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="apple-touch-icon" href="icon-192.png">
-<!-- Chart.js for trends -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<!-- Firebase (optional, only used when enabled) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<style>
-  :root{--bg:#0f1320;--card:#161a2b;--ink:#e8eaf6;--muted:#a6accd;--accent:#8ab4f8;--border:#2a3152;--danger:#ff6b6b;--good:#4caf50;}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto}
-  header{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  header h1{font-size:18px;margin:0}
-  nav.tabs{display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-  .tab{padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:#0e1221;color:var(--ink);cursor:pointer}
-  .tab.active{background:#1a2040;border-color:#3a4370}
-  .wrap{max-width:1300px;margin:0 auto;padding:12px;display:grid;grid-template-columns:360px 1fr;gap:12px}
-  @media (max-width:900px){ .wrap{grid-template-columns:1fr} }
-  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
-  .card h2{font-size:16px;margin:0 0 8px}
-  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 6px}
-  input,select,button,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:#0e1221;color:var(--ink)}
-  textarea{min-height:120px}
-  option{color:#000}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
-  .toolbar > div{flex:1;min-width:160px}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-  .note{font-size:12px;color:var(--muted)}
-  .warn{color:#ffd7d7}
-  .hint{font-size:12px;color:#ffd28a}
-  .debug{background:#221d00;color:#ffe08a;border:1px dashed #ffe08a;border-radius:10px;padding:8px;margin:8px 0;display:none}
-  table{width:100%;border-collapse:collapse;background:#0d1120;border:1px solid var(--border)}
-  th,td{border:1px solid var(--border);padding:6px 8px;text-align:center;font-size:13px}
-  th{background:#11162a;color:#c7ceea;position:sticky;top:0;z-index:1}
-  thead th.group{background:#10162b;font-weight:700}
-  .sticky-col{position:sticky;left:0;background:#10162b;z-index:2}
-  .cell{min-width:64px}
-  .cell[contenteditable="true"]{outline:none}
-  .cell:focus{box-shadow:0 0 0 2px var(--accent) inset}
-  .danger{border-color:var(--danger); color:#ffd7d7}
-  .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#0e1221;font-size:12px}
-  .legend{display:flex;gap:8px;flex-wrap:wrap}
-  .chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--border);border-radius:999px;padding:4px 8px;font-size:12px;background:#0e1221}
-  .chip.low{border-color:var(--good);color:#b9f6ca}
-  .chip.high{border-color:var(--danger);color:#ffd7d7}
-  .low-cell{background:rgba(76,175,80,.2)}   /* green */
-  .high-cell{background:rgba(255,107,107,.2)}/* red */
-  .ok-cell{background:transparent}
-  .gridControls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:6px 0}
-  @media print{
-    body{background:#fff;color:#000}
-    header,.no-print{display:none!important}
-    .wrap{grid-template-columns:1fr}
-    .card{border:none;padding:0}
-    th,td{border:1px solid #777;color:#000}
-    th{background:#eee;color:#000}
-    .sticky-col{position:static;background:#fff}
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Daily Test Log</title>
+  <!-- Chart.js for trends -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Firebase (optional) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <style>
+    :root {
+      --bg: #0f1320;
+      --card: #161a2b;
+      --ink: #e8eaf6;
+      --muted: #a6accd;
+      --accent: #8ab4f8;
+      --border: #2a3152;
+      --danger: #ff6b6b;
+      --good: #4caf50;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto;
+      overflow-y: scroll;
+    }
+    header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      font-size: 18px;
+      margin: 0;
+    }
+    nav.tabs {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .tab {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #0e1221;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .tab.active {
+      background: #1a2040;
+      border-color: #3a4370;
+    }
+    .tab-content {
+      display: none;
+      padding: 12px;
+    }
+    .tab-content.active { display: block; }
+    .wrap {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 12px;
+    }
+    @media (max-width:900px) { .wrap { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .card h2 {
+      font-size: 16px;
+      margin: 0 0 8px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin: 10px 0 6px;
+    }
+    input, select, button, textarea {
+      width: 100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0e1221;
+      color: var(--ink);
+    }
+    button { cursor: pointer; }
+    textarea { min-height: 120px; }
+    option { color: #000; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+    .toolbar > div { flex: 1; min-width: 160px; }
+    .note { font-size: 12px; color: var(--muted); }
+    .gridControls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin: 6px 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #0d1120;
+      border: 1px solid var(--border);
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: center;
+    }
+    th {
+      background: #11162a;
+      color: #c7ceea;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .sticky-col {
+      position: sticky;
+      left: 0;
+      background: #10162b;
+      z-index: 2;
+    }
+    .cell { min-width: 64px; }
+    .cell[contenteditable="true"] { outline: none; }
+    .cell:focus { box-shadow: 0 0 0 2px var(--accent) inset; }
+    .low-cell { background: rgba(76, 175, 80, 0.2); }  /* green */
+    .high-cell { background: rgba(255, 107, 107, 0.2); }/* red */
+    .ok-cell { background: transparent; }
+    /* Hide computed cells caret */
+    .computed { user-select: none; }
+    /* Print styles */
+    @media print {
+      body { background: #fff; color: #000; }
+      header, .no-print { display: none !important; }
+      .wrap { grid-template-columns: 1fr; }
+      .card { border: none; padding: 0; }
+      th, td { border: 1px solid #777; color: #000; }
+      th { background: #eee; color: #000; }
+      .sticky-col { position: static; background: #fff; }
+    }
+  </style>
 </head>
 <body>
   <header>
     <h1>Daily Test Log</h1>
-    <span id="warn" class="note warn"></span>
+    <span class="note">Offline capable. Use Settings to configure storage and systems.</span>
   </header>
-
-  <nav class="tabs no-print">
-    <button id="tabDaily" class="tab active">Daily</button>
-    <button id="tabMonthly" class="tab">Monthly</button>
-    <button id="tabSettings" class="tab">Settings</button>
-    <button id="tabTrends" class="tab">Trends</button>
+  <nav class="tabs">
+    <button class="tab active" data-target="daily">Daily</button>
+    <button class="tab" data-target="monthly">Monthly</button>
+    <button class="tab" data-target="settings">Settings</button>
+    <button class="tab" data-target="trends">Trends</button>
   </nav>
 
-  <div class="wrap">
-    <!-- LEFT: Shared Controls -->
-    <section class="card">
-      <h2>Controls</h2>
-      <div class="toolbar">
-        <div>
-          <label for="systemSel">System</label>
-          <select id="systemSel"><option value="" disabled selected>-- Select System --</option></select>
-          <div id="sysEmptyHint" class="hint" style="display:none;margin-top:6px">
-            No systems yet. Go to <b>Settings</b> to add them.
+  <!-- Daily Tab Content -->
+  <div id="daily" class="tab-content active">
+    <div class="wrap">
+      <div class="card" id="dailyControls">
+        <h2>Controls</h2>
+        <div class="toolbar">
+          <div>
+            <label for="dailySystem">System</label>
+            <select id="dailySystem"></select>
           </div>
-        </div>
-        <div id="dailyInputs">
-          <label for="dateSel">Date</label>
-          <input type="date" id="dateSel" />
-          <div class="actions">
+          <div>
+            <label for="dailyDate">Date</label>
+            <input id="dailyDate" type="date"/>
+          </div>
+          <div>
             <button id="prevDay">◀ Prev</button>
             <button id="nextDay">Next ▶</button>
           </div>
         </div>
-        <div id="monthlyInputs" style="display:none">
-          <label for="monthSel">Month</label>
-          <input type="month" id="monthSel" />
-          <div class="actions"><button id="btnBuild">Build Grid</button></div>
+        <p class="note">Select a system and date to build the grid.</p>
+      </div>
+      <div class="card" id="dailyGridCard">
+        <h2 id="dailyGridTitle">Daily View</h2>
+        <div id="dailyGridContainer">
+          <!-- grid inserted here -->
         </div>
       </div>
-
-      <hr style="border-color:var(--border);margin:12px 0" />
-
-      <div class="legend">
-        <span class="chip">OK</span>
-        <span class="chip low">Low (green)</span>
-        <span class="chip high">High (red)</span>
-      </div>
-
-      <hr style="border-color:var(--border);margin:12px 0" />
-
-      <h2 class="no-print">Import / Export</h2>
-      <div class="actions no-print">
-        <input type="file" id="importFile" accept=".json" />
-        <button id="btnExportJSON">Export JSON</button>
-        <button id="btnExportCSV">Export CSV</button>
-        <button id="btnExportXLS">Export Excel</button>
-        <button id="btnExportPDF">Export PDF</button>
-        <button id="btnPrint">Print</button>
-      </div>
-      <p class="note">Tip: Add to Home Screen for offline use.</p>
-    </section>
-
-    <!-- RIGHT: Daily View -->
-    <section class="card" id="viewDaily">
-      <div class="gridControls">
-        <h2 id="dayTitle">Daily View</h2>
-        <span id="statusDaily" class="note"></span>
-      </div>
-      <div id="dayWrap" style="overflow:auto;max-height:70vh"></div>
-    </section>
-
-    <!-- RIGHT: Monthly View -->
-    <section class="card" id="viewMonthly" style="display:none">
-      <div class="gridControls">
-        <h2 id="gridTitle">Monthly View</h2>
-        <span id="statusMonthly" class="note"></span>
-      </div>
-      <div id="gridWrap" style="overflow:auto;max-height:70vh"><table id="grid"></table></div>
-    </section>
-
-    <!-- RIGHT: Settings -->
-    <section class="card" id="viewSettings" style="display:none">
-      <h2>Settings</h2>
-      <h3 style="margin-top:6px">Storage</h3>
-      <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div>
-          <label>Mode</label>
-          <select id="storageMode">
-            <option value="local">Local (this device only)</option>
-            <option value="firebase">Firebase (shared across users)</option>
-          </select>
-        </div>
-        <div>
-          <label>Namespace (site/project name)</label>
-          <input id="nsInput" placeholder="e.g., AHCC"/>
-        </div>
-      </div>
-      <div id="firebaseConfigWrap" style="display:none;margin-top:8px">
-        <label>Firebase Config (JSON)</label>
-        <textarea id="firebaseConfigJson" placeholder='{"apiKey":"","authDomain":"","projectId":"","storageBucket":"","messagingSenderId":"","appId":""}'></textarea>
-        <div class="actions"><button id="btnEnableFirebase">Enable Firebase</button></div>
-        <p class="note">Firestore will store <b>CONFIG</b> and <b>DB</b> under the chosen Namespace.</p>
-      </div>
-
-      <hr style="border-color:var(--border);margin:12px 0" />
-
-      <h3>Systems / Points / Fields</h3>
-      <div class="actions">
-        <input id="newSystem" placeholder="Add new system" />
-        <button id="addSystem">Add</button>
-        <button id="btnSeed">Seed Defaults</button>
-      </div>
-      <div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
-        <div>
-          <h4>Systems</h4>
-          <ul id="sysList" style="list-style:none;padding-left:0;margin:8px 0"></ul>
-        </div>
-        <div>
-          <h4>For Selected System: <span id="editingSystemName"></span></h4>
-          <div class="actions"><input id="newPoint" placeholder="Add point" /><button id="addPoint">Add</button></div>
-          <ul id="pointList" style="list-style:none;padding-left:0;margin:8px 0"></ul>
-          <div class="actions"><input id="newField" placeholder="Add field" /><button id="addField">Add</button></div>
-          <ul id="fieldList" style="list-style:none;padding-left:0;margin:8px 0"></ul>
-        </div>
-      </div>
-
-      <hr style="border-color:var(--border);margin:12px 0" />
-
-      <h3>High/Low Ranges</h3>
-      <p class="note">Set acceptable ranges per System + Field (applies to all points of that system). Leave blank for no range.</p>
-      <div class="actions">
-        <select id="rangeSystem"></select>
-        <input id="rangeField" placeholder="Field label (exact)" />
-        <input id="rangeLow" placeholder="Low" type="number" step="any"/>
-        <input id="rangeHigh" placeholder="High" type="number" step="any"/>
-        <button id="rangeSave">Save Range</button>
-      </div>
-      <table id="rangeTable"></table>
-
-      <hr style="border-color:var(--border);margin:12px 0" />
-      <div class="actions"><button id="btnExportBackup">Export Full Backup</button><button id="btnReset">Force Reset (clear storage & cache)</button></div>
-    </section>
-
-    <!-- RIGHT: Trends -->
-    <section class="card" id="viewTrends" style="display:none">
-      <h2>Trends</h2>
-      <div class="toolbar">
-        <div>
-          <label>Point</label>
-          <select id="trendPoint"></select>
-        </div>
-        <div>
-          <label>Field</label>
-          <select id="trendField"></select>
-        </div>
-        <div>
-          <label>From</label>
-          <input type="date" id="trendFrom"/>
-        </div>
-        <div>
-          <label>To</label>
-          <input type="date" id="trendTo"/>
-        </div>
-        <div style="align-self:end"><button id="trendBuild">Show Trend</button></div>
-      </div>
-      <canvas id="trendCanvas" height="320"></canvas>
-    </section>
+    </div>
   </div>
 
-<script>
-/* ===== The rest of the JS omitted here for brevity in this message. ===== */
-// NOTE: In the real downloadable file, the full JS is present.
-</script>
+  <!-- Monthly Tab Content -->
+  <div id="monthly" class="tab-content">
+    <div class="wrap">
+      <div class="card" id="monthlyControls">
+        <h2>Monthly Controls</h2>
+        <div class="toolbar">
+          <div>
+            <label for="monthlySystem">System</label>
+            <select id="monthlySystem"></select>
+          </div>
+          <div>
+            <label for="monthlyMonth">Month</label>
+            <input id="monthlyMonth" type="month"/>
+          </div>
+          <div>
+            <button id="buildMonthly">Build Grid</button>
+          </div>
+        </div>
+        <p class="note">Build a grid for the selected month. Values outside range are highlighted.</p>
+      </div>
+      <div class="card" id="monthlyGridCard">
+        <h2 id="monthlyGridTitle">Monthly View</h2>
+        <div id="monthlyGridContainer">
+          <!-- monthly grid inserted here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Tab Content -->
+  <div id="settings" class="tab-content">
+    <div class="wrap">
+      <div class="card" id="storageSettings">
+        <h2>Storage</h2>
+        <label for="storageMode">Mode</label>
+        <select id="storageMode">
+          <option value="local">Local (this device only)</option>
+          <option value="firebase">Firebase (shared across users)</option>
+        </select>
+        <label for="namespace">Namespace (site/project name)</label>
+        <input id="namespace" type="text" placeholder="daily-logs"/>
+        <div id="firebaseConfigSection" style="display:none;">
+          <label for="firebaseConfig">Firebase Config (JSON)</label>
+          <textarea id="firebaseConfig" placeholder='{"apiKey": "...", "projectId": "...", ...}'></textarea>
+          <button id="enableFirebase">Enable Firebase</button>
+          <p class="note">Firestore will store settings and logs under the chosen namespace.</p>
+        </div>
+      </div>
+      <div class="card" id="systemSettings">
+        <h2>Systems / Points / Fields</h2>
+        <div class="gridControls">
+          <button id="addSystem">Add System</button>
+          <button id="seedDefaults">Seed Defaults</button>
+          <button id="exportBackup">Export Full Backup</button>
+          <button id="forceReset">Force Reset (clear storage)</button>
+        </div>
+        <div id="systemsList">
+          <!-- systems list inserted here -->
+        </div>
+        <h3>High/Low Ranges</h3>
+        <div id="rangesList">
+          <!-- ranges table inserted here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trends Tab Content -->
+  <div id="trends" class="tab-content">
+    <div class="wrap">
+      <div class="card" id="trendControls">
+        <h2>Trend Controls</h2>
+        <div class="toolbar">
+          <div>
+            <label for="trendSystem">System</label>
+            <select id="trendSystem"></select>
+          </div>
+          <div>
+            <label for="trendPoint">Point</label>
+            <select id="trendPoint"></select>
+          </div>
+          <div>
+            <label for="trendField">Field</label>
+            <select id="trendField"></select>
+          </div>
+          <div>
+            <label for="trendFrom">From</label>
+            <input id="trendFrom" type="date"/>
+          </div>
+          <div>
+            <label for="trendTo">To</label>
+            <input id="trendTo" type="date"/>
+          </div>
+          <div>
+            <button id="showTrend">Show Trend</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="trendChartCard">
+        <h2 id="trendTitle">Trend</h2>
+        <canvas id="trendChart" height="300"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*
+     * Configuration and data structures
+     *
+     * config: {
+     *   systems: {
+     *     [systemName]: {
+     *       points: {
+     *         [pointName]: {
+     *           fields: [field1, field2, ...],
+     *           meterField?: name of the meter reading field (string),
+     *           calcField?: name of the delta field (string),
+     *           totalField?: name of the running total field (string)
+     *         }
+     *       }
+     *     }
+     *   },
+     *   ranges: {
+     *     "system|field": { low: number|null, high: number|null }
+     *   },
+     *   storage: {
+     *     mode: "local" | "firebase",
+     *     namespace: string,
+     *     firebaseConfig: object|null
+     *   }
+     * }
+     *
+     * logs: {
+     *   [date]: {
+     *     [system]: {
+     *       [point]: {
+     *         [field]: value
+     *       }
+     *     }
+     *   }
+     * }
+     */
+    const DEFAULT_NAMESPACE = 'daily-logs';
+    let config = null;
+    let logs = {};
+    let firestore = null;
+
+    /** Load configuration from storage or initialize defaults. */
+    function loadConfig() {
+      const stored = localStorage.getItem('dailyLogConfig');
+      if (stored) {
+        try {
+          config = JSON.parse(stored);
+        } catch (e) {
+          console.warn('Failed to parse config, resetting');
+          config = null;
+        }
+      }
+      if (!config) {
+        // Initialize minimal config
+        config = {
+          systems: {},
+          ranges: {},
+          storage: { mode: 'local', namespace: DEFAULT_NAMESPACE, firebaseConfig: null }
+        };
+      }
+    }
+
+    /** Save configuration to localStorage and Firestore if enabled. */
+    async function saveConfig() {
+      localStorage.setItem('dailyLogConfig', JSON.stringify(config));
+      if (config.storage.mode === 'firebase' && firestore) {
+        const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+        await firestore.collection('config').doc(ns).set(config);
+      }
+    }
+
+    /** Load logs from storage (local or Firestore) into memory. */
+    async function loadLogs() {
+      logs = {};
+      if (config.storage.mode === 'firebase' && firestore) {
+        const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+        const snap = await firestore.collection('logs').doc(ns).get();
+        if (snap.exists) {
+          logs = snap.data() || {};
+        }
+      } else {
+        const stored = localStorage.getItem('dailyLogData');
+        if (stored) {
+          try { logs = JSON.parse(stored); } catch (e) { logs = {}; }
+        }
+      }
+    }
+
+    /** Save logs to storage. */
+    async function saveLogs() {
+      if (config.storage.mode === 'firebase' && firestore) {
+        const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+        await firestore.collection('logs').doc(ns).set(logs);
+      } else {
+        localStorage.setItem('dailyLogData', JSON.stringify(logs));
+      }
+    }
+
+    /** Initialize Firebase if config is provided. */
+    function initFirebase() {
+      if (!config.storage.firebaseConfig) return;
+      try {
+        firebase.initializeApp(config.storage.firebaseConfig);
+        firestore = firebase.firestore();
+      } catch (e) {
+        console.error('Firebase init error', e);
+      }
+    }
+
+    /** Seed default systems and points. */
+    function seedDefaults() {
+      // Only seed if no systems yet
+      if (Object.keys(config.systems).length > 0) return;
+      // Cooling Towers
+      config.systems['Cooling Tower 1'] = { points: { 'Tower 1': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
+      config.systems['Cooling Tower 2'] = { points: { 'Tower 2': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
+      // Loops
+      config.systems['Chilled Loop'] = { points: { 'Chilled Loop': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
+      config.systems['Hot Loop'] = { points: { 'Hot Loop': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
+      // Boilers
+      config.systems['J Boiler – Laundry'] = { points: { 'Laundry': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' } } };
+      config.systems['J2 Boilers'] = { points: {
+        'Boiler 1': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' },
+        'Boiler 2': { fields: ['Meter','Makeup (calc)','Total Makeup (calc)'], meterField:'Meter', calcField:'Makeup (calc)', totalField:'Total Makeup (calc)' }
+      } };
+      // Gas meter
+      config.systems['Gas Meter'] = { points: { 'Gas': { fields: ['Reading','Usage (calc)','Total Usage (calc)'], meterField:'Reading', calcField:'Usage (calc)', totalField:'Total Usage (calc)' } } };
+      saveConfig();
+      renderSystemOptions();
+      renderSystemsList();
+      renderRangesTable();
+    }
+
+    /** Render the system selector options for daily, monthly and trend views. */
+    function renderSystemOptions() {
+      const dailySelect = document.getElementById('dailySystem');
+      const monthlySelect = document.getElementById('monthlySystem');
+      const trendSelect = document.getElementById('trendSystem');
+      [dailySelect, monthlySelect, trendSelect].forEach(sel => {
+        sel.innerHTML = '';
+        const defOpt = document.createElement('option');
+        defOpt.textContent = '-- Select System --';
+        defOpt.value = '';
+        sel.appendChild(defOpt);
+        Object.keys(config.systems).forEach(sys => {
+          const opt = document.createElement('option');
+          opt.value = sys;
+          opt.textContent = sys;
+          sel.appendChild(opt);
+        });
+      });
+    }
+
+    /** Render list of systems/points/fields in settings. */
+    function renderSystemsList() {
+      const container = document.getElementById('systemsList');
+      container.innerHTML = '';
+      const systems = config.systems;
+      Object.entries(systems).forEach(([sysName, sysObj]) => {
+        const sysDiv = document.createElement('div');
+        sysDiv.className = 'card';
+        const header = document.createElement('h3');
+        header.textContent = sysName;
+        sysDiv.appendChild(header);
+        // Points list
+        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
+          const ptDiv = document.createElement('div');
+          ptDiv.style.marginBottom = '8px';
+          const ptTitle = document.createElement('strong');
+          ptTitle.textContent = ptName;
+          ptDiv.appendChild(ptTitle);
+          // Fields list
+          const fieldsUl = document.createElement('ul');
+          fieldsUl.style.listStyle = 'disc';
+          fieldsUl.style.paddingLeft = '20px';
+          ptObj.fields.forEach(f => {
+            const li = document.createElement('li');
+            li.textContent = f;
+            fieldsUl.appendChild(li);
+          });
+          ptDiv.appendChild(fieldsUl);
+          sysDiv.appendChild(ptDiv);
+        });
+        container.appendChild(sysDiv);
+      });
+    }
+
+    /** Render ranges table for editing high/low values. */
+    function renderRangesTable() {
+      const container = document.getElementById('rangesList');
+      container.innerHTML = '';
+      // Build table with system, field, low, high
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const thr = document.createElement('tr');
+      ['System','Field','Low','High'].forEach(txt => {
+        const th = document.createElement('th'); th.textContent = txt; thr.appendChild(th);
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      Object.entries(config.systems).forEach(([sysName, sysObj]) => {
+        const fieldsSet = new Set();
+        Object.values(sysObj.points).forEach(pt => pt.fields.forEach(f => fieldsSet.add(f)));
+        fieldsSet.forEach(field => {
+          // Only show editable ranges for non‑calc fields (skip "Makeup (calc)", "Total", etc.)
+          const isCalc = field.toLowerCase().includes('(calc)');
+          const tr = document.createElement('tr');
+          const sysTd = document.createElement('td'); sysTd.textContent = sysName; tr.appendChild(sysTd);
+          const fieldTd = document.createElement('td'); fieldTd.textContent = field; tr.appendChild(fieldTd);
+          const lowTd = document.createElement('td');
+          const lowInput = document.createElement('input'); lowInput.type = 'number'; lowInput.step = 'any'; lowInput.style.width = '80px';
+          const key = `${sysName}|${field}`;
+          const range = config.ranges[key] || { low: '', high: '' };
+          lowInput.value = range.low ?? '';
+          lowInput.disabled = isCalc;
+          lowTd.appendChild(lowInput);
+          tr.appendChild(lowTd);
+          const highTd = document.createElement('td');
+          const highInput = document.createElement('input'); highInput.type = 'number'; highInput.step = 'any'; highInput.style.width = '80px';
+          highInput.value = range.high ?? '';
+          highInput.disabled = isCalc;
+          highTd.appendChild(highInput);
+          tr.appendChild(highTd);
+          // Save on change
+          function saveRange() {
+            if (!config.ranges[key]) config.ranges[key] = { low:null, high:null };
+            const lVal = lowInput.value !== '' ? parseFloat(lowInput.value) : null;
+            const hVal = highInput.value !== '' ? parseFloat(highInput.value) : null;
+            config.ranges[key].low = lVal;
+            config.ranges[key].high = hVal;
+            saveConfig();
+            // Recalculate highlights in current views
+            buildDailyGrid();
+            buildMonthlyGrid();
+          }
+          lowInput.addEventListener('change', saveRange);
+          highInput.addEventListener('change', saveRange);
+          tbody.appendChild(tr);
+        });
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    /** Build the daily grid for the selected system/date. */
+    function buildDailyGrid() {
+      const sysName = document.getElementById('dailySystem').value;
+      const date = document.getElementById('dailyDate').value;
+      const container = document.getElementById('dailyGridContainer');
+      const titleEl = document.getElementById('dailyGridTitle');
+      container.innerHTML = '';
+      if (!sysName || !date) {
+        titleEl.textContent = 'Daily View';
+        return;
+      }
+      titleEl.textContent = `${sysName} – ${date}`;
+      const sys = config.systems[sysName];
+      if (!sys) return;
+      // Ensure logs object exists for this date and system
+      if (!logs[date]) logs[date] = {};
+      if (!logs[date][sysName]) logs[date][sysName] = {};
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      const corner = document.createElement('th');
+      corner.className = 'sticky-col';
+      corner.textContent = 'Point / Field';
+      headerRow.appendChild(corner);
+      // Determine the set of fields for the system (assumes uniform across points)
+      const firstPoint = Object.values(sys.points)[0];
+      firstPoint.fields.forEach(field => {
+        const th = document.createElement('th'); th.textContent = field; headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      Object.entries(sys.points).forEach(([ptName, ptObj]) => {
+        const row = document.createElement('tr');
+        const th = document.createElement('th'); th.textContent = ptName; th.className = 'sticky-col'; row.appendChild(th);
+        ptObj.fields.forEach(field => {
+          const td = document.createElement('td');
+          td.className = 'cell';
+          const isCalc = ptObj.calcField === field || ptObj.totalField === field;
+          let val = '';
+          if (logs[date][sysName][ptName] && logs[date][sysName][ptName][field] !== undefined) {
+            val = logs[date][sysName][ptName][field];
+          }
+          // For meter/calculated fields, we handle differently
+          if (isCalc) {
+            td.classList.add('computed');
+            td.textContent = val;
+          } else {
+            td.contentEditable = true;
+            td.textContent = val;
+            td.addEventListener('input', () => {
+              // Save value
+              const value = td.textContent.trim();
+              if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
+              logs[date][sysName][ptName][field] = value;
+              // Recalculate makeup/usage values for this point
+              computeMakeupForPoint(date, sysName, ptName);
+              saveLogs();
+              buildDailyGrid(); // re-render to update computed fields & highlights
+            });
+          }
+          // Apply range class
+          applyRangeClass(td, sysName, field, val);
+          row.appendChild(td);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    /** Compute delta and total values for meter points. */
+    function computeMakeupForPoint(date, sysName, ptName) {
+      const sys = config.systems[sysName];
+      if (!sys) return;
+      const pt = sys.points[ptName];
+      const meterField = pt.meterField;
+      const calcField = pt.calcField;
+      const totalField = pt.totalField;
+      if (!meterField || !calcField || !totalField) return;
+      // Current value (string) -> float
+      const currentVal = logs[date]?.[sysName]?.[ptName]?.[meterField];
+      const curr = parseFloat(currentVal);
+      if (isNaN(curr)) {
+        // Clear calc and total
+        if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
+        logs[date][sysName][ptName][calcField] = '';
+        logs[date][sysName][ptName][totalField] = '';
+        return;
+      }
+      // Find previous date for same system/point
+      const prevDate = findPreviousDate(date);
+      let prev = null;
+      if (prevDate && logs[prevDate]?.[sysName]?.[ptName]?.[meterField] !== undefined) {
+        prev = parseFloat(logs[prevDate][sysName][ptName][meterField]);
+        if (isNaN(prev)) prev = null;
+      }
+      const delta = prev !== null ? curr - prev : null;
+      // Total: sum of deltas from the first day of month up to current date
+      let total = 0;
+      const [year, month] = date.split('-');
+      const monthStart = new Date(year, month - 1, 1);
+      for (let d = new Date(monthStart); d <= new Date(date); d.setDate(d.getDate() + 1)) {
+        const dd = d.toISOString().slice(0,10);
+        if (logs[dd]?.[sysName]?.[ptName]) {
+          const v = parseFloat(logs[dd][sysName][ptName][meterField]);
+          const prevD = findPreviousDate(dd);
+          let pv = null;
+          if (prevD && logs[prevD]?.[sysName]?.[ptName]?.[meterField] !== undefined) {
+            pv = parseFloat(logs[prevD][sysName][ptName][meterField]);
+            if (isNaN(pv)) pv = null;
+          }
+          if (pv !== null && !isNaN(v)) {
+            total += (v - pv);
+          }
+        }
+      }
+      if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
+      logs[date][sysName][ptName][calcField] = delta !== null ? (delta >= 0 ? delta.toFixed(2) : '') : '';
+      logs[date][sysName][ptName][totalField] = !isNaN(total) && total > 0 ? total.toFixed(2) : '';
+    }
+
+    /** Find the most recent previous date in logs before given date. */
+    function findPreviousDate(date) {
+      const dates = Object.keys(logs).filter(d => d < date).sort();
+      return dates.length ? dates[dates.length - 1] : null;
+    }
+
+    /** Apply high/low range classes to cell. */
+    function applyRangeClass(cell, system, field, value) {
+      cell.classList.remove('low-cell','high-cell','ok-cell');
+      const key = `${system}|${field}`;
+      const range = config.ranges[key];
+      const num = parseFloat(value);
+      if (!range || isNaN(num)) {
+        cell.classList.add('ok-cell');
+        return;
+      }
+      const { low, high } = range;
+      if (low !== null && num < low) {
+        cell.classList.add('low-cell');
+      } else if (high !== null && num > high) {
+        cell.classList.add('high-cell');
+      } else {
+        cell.classList.add('ok-cell');
+      }
+    }
+
+    /** Build the monthly grid when requested. */
+    function buildMonthlyGrid() {
+      const sysName = document.getElementById('monthlySystem').value;
+      const monthStr = document.getElementById('monthlyMonth').value;
+      const container = document.getElementById('monthlyGridContainer');
+      const titleEl = document.getElementById('monthlyGridTitle');
+      container.innerHTML = '';
+      if (!sysName || !monthStr) {
+        titleEl.textContent = 'Monthly View';
+        return;
+      }
+      const [year, month] = monthStr.split('-');
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 0);
+      const daysInMonth = monthEnd.getDate();
+      titleEl.textContent = `${sysName} – ${monthStr}`;
+      const sys = config.systems[sysName];
+      if (!sys) return;
+      // Build table with days across columns
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      const corner = document.createElement('th'); corner.textContent = 'Point / Field'; corner.className = 'sticky-col'; hr.appendChild(corner);
+      for (let d = 1; d <= daysInMonth; d++) {
+        const th = document.createElement('th'); th.textContent = d; hr.appendChild(th);
+      }
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      Object.entries(sys.points).forEach(([ptName, ptObj]) => {
+        ptObj.fields.forEach((field, fieldIdx) => {
+          const tr = document.createElement('tr');
+          const th = document.createElement('th'); th.className = 'sticky-col';
+          if (fieldIdx === 0) {
+            th.textContent = ptName;
+            th.rowSpan = ptObj.fields.length;
+          }
+          tr.appendChild(th);
+          const fieldCell = document.createElement('th');
+          fieldCell.textContent = field;
+          fieldCell.className = 'sticky-col';
+          tr.appendChild(fieldCell);
+          for (let day = 1; day <= daysInMonth; day++) {
+            const date = new Date(year, month - 1, day).toISOString().slice(0,10);
+            const td = document.createElement('td'); td.className = 'cell';
+            let val = '';
+            if (logs[date]?.[sysName]?.[ptName]?.[field] !== undefined) {
+              val = logs[date][sysName][ptName][field];
+            }
+            td.textContent = val;
+            applyRangeClass(td, sysName, field, val);
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        });
+      });
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+
+    /** Show trend chart for selected system, point, field, and date range. */
+    function showTrend() {
+      const sys = document.getElementById('trendSystem').value;
+      const pt = document.getElementById('trendPoint').value;
+      const field = document.getElementById('trendField').value;
+      const from = document.getElementById('trendFrom').value;
+      const to = document.getElementById('trendTo').value;
+      const titleEl = document.getElementById('trendTitle');
+      titleEl.textContent = `${sys} – ${pt} – ${field}`;
+      const labels = [];
+      const dataPoints = [];
+      if (!sys || !pt || !field) return;
+      // Collect logs within range
+      const fromDate = from || '0000-00-00';
+      const toDate = to || '9999-12-31';
+      const dates = Object.keys(logs).filter(d => d >= fromDate && d <= toDate).sort();
+      dates.forEach(d => {
+        const val = logs[d]?.[sys]?.[pt]?.[field];
+        const num = parseFloat(val);
+        if (!isNaN(num)) {
+          labels.push(d);
+          dataPoints.push(num);
+        }
+      });
+      const ctx = document.getElementById('trendChart').getContext('2d');
+      // Destroy previous chart if exists
+      if (window.trendChartInstance) {
+        window.trendChartInstance.destroy();
+      }
+      window.trendChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{ label: field, data: dataPoints, borderColor: '#8ab4f8', fill: false }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: 'Date' } },
+            y: { title: { display: true, text: field }, beginAtZero: false }
+          }
+        }
+      });
+    }
+
+    /** Event listeners and initialization */
+    function initEvents() {
+      // Tab switching
+      document.querySelectorAll('nav.tabs .tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.dataset.target;
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(target).classList.add('active');
+          // Refresh appropriate view
+          if (target === 'monthly') {
+            renderSystemOptions();
+          } else if (target === 'settings') {
+            // ensure ranges list updated
+            renderRangesTable();
+          } else if (target === 'trends') {
+            renderSystemOptions();
+          }
+        });
+      });
+      // Date navigation
+      document.getElementById('prevDay').addEventListener('click', () => {
+        const dateInput = document.getElementById('dailyDate');
+        if (!dateInput.value) return;
+        const d = new Date(dateInput.value);
+        d.setDate(d.getDate() - 1);
+        dateInput.valueAsDate = d;
+        buildDailyGrid();
+      });
+      document.getElementById('nextDay').addEventListener('click', () => {
+        const dateInput = document.getElementById('dailyDate');
+        if (!dateInput.value) return;
+        const d = new Date(dateInput.value);
+        d.setDate(d.getDate() + 1);
+        dateInput.valueAsDate = d;
+        buildDailyGrid();
+      });
+      document.getElementById('dailyDate').addEventListener('change', buildDailyGrid);
+      document.getElementById('dailySystem').addEventListener('change', buildDailyGrid);
+      document.getElementById('monthlySystem').addEventListener('change', buildMonthlyGrid);
+      document.getElementById('monthlyMonth').addEventListener('change', buildMonthlyGrid);
+      document.getElementById('buildMonthly').addEventListener('click', buildMonthlyGrid);
+      // Storage mode
+      document.getElementById('storageMode').addEventListener('change', (e) => {
+        config.storage.mode = e.target.value;
+        if (config.storage.mode === 'firebase') {
+          document.getElementById('firebaseConfigSection').style.display = 'block';
+        } else {
+          document.getElementById('firebaseConfigSection').style.display = 'none';
+        }
+        saveConfig();
+      });
+      // Namespace
+      document.getElementById('namespace').addEventListener('change', (e) => {
+        config.storage.namespace = e.target.value;
+        saveConfig();
+      });
+      // Enable Firebase
+      document.getElementById('enableFirebase').addEventListener('click', async () => {
+        let cfg;
+        try {
+          cfg = JSON.parse(document.getElementById('firebaseConfig').value);
+        } catch (e) {
+          alert('Invalid Firebase config JSON');
+          return;
+        }
+        config.storage.firebaseConfig = cfg;
+        initFirebase();
+        await saveConfig();
+        await loadLogs();
+        buildDailyGrid();
+        buildMonthlyGrid();
+        alert('Firebase enabled');
+      });
+      // Add system
+      document.getElementById('addSystem').addEventListener('click', () => {
+        const name = prompt('Enter system name:');
+        if (!name) return;
+        if (config.systems[name]) { alert('System already exists'); return; }
+        config.systems[name] = { points: {} };
+        saveConfig();
+        renderSystemOptions();
+        renderSystemsList();
+        renderRangesTable();
+      });
+      // Seed defaults
+      document.getElementById('seedDefaults').addEventListener('click', () => {
+        if (!confirm('Seed default systems? This will not overwrite existing systems.')) return;
+        seedDefaults();
+      });
+      // Export backup
+      document.getElementById('exportBackup').addEventListener('click', () => {
+        const backup = { config, logs };
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'daily_logs_backup.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+      // Force reset
+      document.getElementById('forceReset').addEventListener('click', () => {
+        if (!confirm('This will clear ALL local data (config and logs) and reload the page. Continue?')) return;
+        localStorage.removeItem('dailyLogConfig');
+        localStorage.removeItem('dailyLogData');
+        location.reload();
+      });
+      // Trend controls
+      document.getElementById('trendSystem').addEventListener('change', () => {
+        const sys = document.getElementById('trendSystem').value;
+        const ptSelect = document.getElementById('trendPoint');
+        ptSelect.innerHTML = '';
+        const fieldSelect = document.getElementById('trendField');
+        fieldSelect.innerHTML = '';
+        if (!sys) return;
+        const sysObj = config.systems[sys];
+        Object.keys(sysObj.points).forEach(pt => {
+          const opt = document.createElement('option'); opt.value = pt; opt.textContent = pt; ptSelect.appendChild(opt);
+        });
+        // Trigger point change to populate fields
+        ptSelect.dispatchEvent(new Event('change'));
+      });
+      document.getElementById('trendPoint').addEventListener('change', () => {
+        const sys = document.getElementById('trendSystem').value;
+        const pt = document.getElementById('trendPoint').value;
+        const fieldSelect = document.getElementById('trendField');
+        fieldSelect.innerHTML = '';
+        if (!sys || !pt) return;
+        const fields = config.systems[sys].points[pt].fields;
+        fields.forEach(f => {
+          // Skip calc totals for trending? trending should include them too.
+          const opt = document.createElement('option'); opt.value = f; opt.textContent = f; fieldSelect.appendChild(opt);
+        });
+      });
+      document.getElementById('showTrend').addEventListener('click', showTrend);
+    }
+
+    /** Initialize the application on first load. */
+    async function init() {
+      loadConfig();
+      // Display firebase config if needed
+      if (config.storage.mode === 'firebase') {
+        document.getElementById('firebaseConfigSection').style.display = 'block';
+      }
+      document.getElementById('storageMode').value = config.storage.mode;
+      document.getElementById('namespace').value = config.storage.namespace || DEFAULT_NAMESPACE;
+      if (config.storage.firebaseConfig) {
+        document.getElementById('firebaseConfig').value = JSON.stringify(config.storage.firebaseConfig);
+        initFirebase();
+      }
+      await loadLogs();
+      // Seed defaults if no systems
+      if (Object.keys(config.systems).length === 0) {
+        seedDefaults();
+      }
+      renderSystemOptions();
+      renderSystemsList();
+      renderRangesTable();
+      initEvents();
+      // Preselect today's date
+      const today = new Date().toISOString().slice(0,10);
+      document.getElementById('dailyDate').value = today;
+      // Preselect current month in monthly view (YYYY-MM)
+      const currentMonth = today.slice(0,7);
+      const monthlyMonthInput = document.getElementById('monthlyMonth');
+      if (monthlyMonthInput) monthlyMonthInput.value = currentMonth;
+      document.getElementById('trendFrom').value = today;
+      document.getElementById('trendTo').value = today;
+      buildDailyGrid();
+    }
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
 </body>
 </html>
