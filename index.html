@@ -48,6 +48,20 @@
     th{background:#eee;color:#000}
     .sticky-col{position:static;background:#fff}
   }
+
+  /* Water Log drop-in styles */
+  .wl-card{max-width:860px;margin:20px auto;padding:16px;border:1px solid #ddd;border-radius:10px;font-family:system-ui,Arial,sans-serif;background:#fff;color:#111}
+  .wl-row{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0}
+  .wl-row>div{flex:1;min-width:180px}
+  .wl-label{font-size:12px;font-weight:600;margin-bottom:4px}
+  .wl-input,.wl-select,.wl-text{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
+  .wl-h{font-size:18px;font-weight:700;margin:8px 0 4px}
+  .wl-hr{border:none;border-top:1px solid #eee;margin:12px 0}
+  .wl-btn{padding:8px 12px;border:1px solid #bbb;border-radius:8px;background:#f7f7f7;cursor:pointer}
+  .wl-btn.primary{background:#eef;border-color:#a8b7ff}
+  .wl-chip{display:inline-flex;gap:8px;align-items:center;border:1px solid #ddd;border-radius:16px;padding:4px 8px;margin:4px 4px 0 0}
+  .wl-small{font-size:11px;color:#666}
+  .wl-sticky{position:fixed;right:16px;bottom:16px;z-index:9999}
 </style>
 </head>
 <body>
@@ -131,7 +145,12 @@
     </section>
   </div>
 
+  <!-- Water Log drop-in UI -->
+  <div id="wl-root" class="wl-card" style="display:none"></div>
+  <button id="wl-open" class="wl-btn wl-sticky">Open Water Log</button>
+
 <script>
+/* ===== Core App Script ===== */
 if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(console.error); }); }
 (function ensureMonthInput(){ const ip=document.getElementById('monthSel'); const t=document.createElement('input'); t.setAttribute('type','month'); if(t.type!=='month'){ ip.setAttribute('type','text'); ip.setAttribute('placeholder','YYYY-MM'); }})();
 
@@ -139,21 +158,20 @@ function storageAvailable(type){try{var s=window[type],x='__t__';s.setItem(x,x);
 const HAS_LS = storageAvailable('localStorage');
 document.getElementById('warn').textContent = HAS_LS ? '' : 'Private mode may limit saving.';
 
-// NEW keys
+// Keys
 const CONFIG_KEY='cfg_v2'; const DATA_KEY='db_v2';
+// Default seed aligned with your needs (you can rename later)
 const SEED = {
-  systems: ["Chilled Loop","Hot Loop","Laundry Boiler 1","Laundry Boiler 2","Food Boiler 1","Food Boiler 2","Cooling Tower 1","Cooling Tower 2","Condensate 1","Condensate 2"],
+  systems: ["Cooling Tower #1","Cooling Tower #2","Central Chilled Water","Central Hot Water","B Condensate Return","J Condensate Return","J Boiler - Laundry","J2 Boiler - Food Factory"],
   bySystem: {
-    "Chilled Loop":{points:["Supply","Return"], fields:["Conductivity","Sulfite","Posca"]},
-    "Hot Loop":{points:["Supply","Return"], fields:["Conductivity","Sulfite","Posca"]},
-    "Laundry Boiler 1":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Conductivity","Sulfite","Posca"]},
-    "Laundry Boiler 2":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Conductivity","Sulfite","Posca"]},
-    "Food Boiler 1":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Conductivity","Sulfite","Posca"]},
-    "Food Boiler 2":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Conductivity","Sulfite","Posca"]},
-    "Cooling Tower 1":{points:["Basin","Return","Makeup"], fields:["Conductivity","Sulfite","Posca"]},
-    "Cooling Tower 2":{points:["Basin","Return","Makeup"], fields:["Conductivity","Sulfite","Posca"]},
-    "Condensate 1":{points:["Sample"], fields:["Conductivity","Sulfite","Posca"]},
-    "Condensate 2":{points:["Sample"], fields:["Conductivity","Sulfite","Posca"]}
+    "Cooling Tower #1":{points:["Basin","Return","Makeup"], fields:["pH","ORP","M","Total Hardness","PTSA","Conductivity","Chemical Added","Comments"]},
+    "Cooling Tower #2":{points:["Basin","Return","Makeup"], fields:["pH","ORP","M","Total Hardness","PTSA","Conductivity","Chemical Added","Comments"]},
+    "Central Chilled Water":{points:["Supply"], fields:["Nitrite","TD","pH","Hardness","Chemical Added","Comments"]},
+    "Central Hot Water":{points:["Supply"], fields:["Nitrite","TD","pH","Hardness","Chemical Added","Comments"]},
+    "B Condensate Return":{points:["East","West"], fields:["pH","Total Hardness","Conductivity (µS/cm)"]},
+    "J Condensate Return":{points:["Sample"], fields:["pH","Total Hardness","Conductivity (µS/cm)"]},
+    "J Boiler - Laundry":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Gallons","Manual Blowdown","CBD %","Softener #","Chlorine","Total Hardness","Alkalinity","pH","Sulfite","Conductivity","Phosphate","DEHA","Return Hardness","Comments"]},
+    "J2 Boiler - Food Factory":{points:["Feedwater","Boiler Water","Blowdown"], fields:["Gallons","Manual Blowdown","CBD %","Softener #","Chlorine","Total Hardness","Alkalinity","pH","Sulfite","Conductivity","Phosphate","DEHA","Return Hardness","Comments"]}
   }
 };
 function deepCopy(o){ return JSON.parse(JSON.stringify(o)); }
@@ -162,10 +180,13 @@ let CONFIG = null; let DB = {};
 try{ const c=localStorage.getItem(CONFIG_KEY); if(c) CONFIG=JSON.parse(c); const d=localStorage.getItem(DATA_KEY); if(d) DB=JSON.parse(d);}catch(e){}
 function isValidConfig(cfg){ return cfg && Array.isArray(cfg.systems) && cfg.systems.length>0 && cfg.bySystem && typeof cfg.bySystem==='object'; }
 const debugBox=document.getElementById('debugBox');
+
+// Auto-seed on first run if missing/invalid
 if(!isValidConfig(CONFIG)){ CONFIG = deepCopy(SEED); try{ localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG)); }catch(e){} }
 if(!isValidConfig(CONFIG)){ debugBox.style.display='block'; }
 
 function saveAll(){ try{ localStorage.setItem(CONFIG_KEY, JSON.stringify(CONFIG)); localStorage.setItem(DATA_KEY, JSON.stringify(DB)); }catch(e){} }
+window.saveAll = saveAll; // expose for drop-in
 
 const systemSel=document.getElementById('systemSel'); const monthSel=document.getElementById('monthSel');
 const grid=document.getElementById('grid'); const gridTitle=document.getElementById('gridTitle'); const statusEl=document.getElementById('status');
@@ -211,6 +232,8 @@ function buildGrid(){
   }
   html += '</tbody>'; grid.innerHTML = html; grid.querySelectorAll('.cell').forEach(td=> td.addEventListener('blur', onCellEdit));
 }
+window.buildGrid = buildGrid;
+
 function onCellEdit(ev){
   const td=ev.currentTarget, sys=systemSel.value, ym=monthSel.value, day=td.closest('tr').getAttribute('data-day'), pt=td.getAttribute('data-point'), fd=td.getAttribute('data-field'), val=td.textContent.trim();
   DB[sys]=DB[sys]||{}; DB[sys][ym]=DB[sys][ym]||{}; DB[sys][ym][day]=DB[sys][ym][day]||{}; DB[sys][ym][day][pt]=DB[sys][ym][day][pt]||{}; DB[sys][ym][day][pt][fd]=val; saveAll(); status('Saved');
@@ -323,7 +346,7 @@ btnExportCSV.addEventListener('click', ()=>{
   const headers=['Date']; points.forEach(p=>fields.forEach(f=>headers.push(`${p} — ${f}`))); const lines=[headers.join(',')];
   for(let d=1; d<=days; d++){ const ds=String(d).padStart(2,'0'); const dateStr=`${ym}-${ds}`; const row=(DB[sys]&&DB[sys][ym]&&DB[sys][ym][ds])||{}; const cells=[dateStr];
     points.forEach(pt=>fields.forEach(fd=>{ const v=(row[pt]&&row[pt][fd]!=null)?String(row[pt][fd]):''; cells.push(/[" ,\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v); })); lines.push(cells.join(',')); }
-  const blob=new Blob([lines.join('\\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${sys} ${ym}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${sys} ${ym}.csv`; a.click(); URL.revokeObjectURL(a.href);
 });
 btnExportXLS.addEventListener('click', ()=>{
   const sys=systemSel.value, ym=monthSel.value; if(!sys||!ym){ alert('Choose system & month'); return; }
@@ -375,14 +398,15 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
   if(new URL(location.href).searchParams.get('reset')==='1'){ btnReset.click(); }
 })();
 </script>
+
+<script>
+/* ===== Water Log Drop-in: pulls systems from CONFIG & writes into DB ===== */
 (function(){
-  // --- read systems from main app CONFIG / localStorage ---
   const CFG_KEY = 'cfg_v2';
   const DB_KEY  = 'db_v2';
 
   function loadConfig() {
     try {
-      // prefer in-memory CONFIG from the main page if present
       if (window.CONFIG && window.CONFIG.systems) return window.CONFIG;
       const raw = localStorage.getItem(CFG_KEY);
       return raw ? JSON.parse(raw) : { systems: [], bySystem: {} };
@@ -394,7 +418,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
   function saveDB(DB){ try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch(e){} }
   function saveCONFIG(CONFIG){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CONFIG)); } catch(e){} }
 
-  // Best-effort type guesser by system name keywords (adjust as you like)
   function inferType(name){
     const n = (name||'').toLowerCase();
     if (n.includes('cool') || n.includes('tower')) return 'cooling_tower';
@@ -404,13 +427,11 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     if (n.includes('boiler') || n.includes('j2') || n.includes('laundry') || n.includes('food')) return 'boiler';
     return 'cooling_tower';
   }
-
   function systemOptions(){
     const CONFIG = loadConfig();
     return (CONFIG.systems||[]).map(name => ({ id:name, type: inferType(name) }));
   }
 
-  // ----- labels & per-type field visibility (matches your sheets) -----
   const CONFIG_FIELDS = {
     labels:{
       pH:"pH",
@@ -436,7 +457,7 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     systems:{
       condensate_return:{
         show:["pH","totalHardness","conductivity"],
-        perSide:["pH","totalHardness","conductivity"] // East/West
+        perSide:["pH","totalHardness","conductivity"]
       },
       cooling_tower:{
         show:["pH","orp","meterM","totalHardness","ptsa","conductivity","chemicals","comments"]
@@ -459,13 +480,11 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     }
   };
 
-  // ---- helpers ----
   const $ = (sel, el=document)=>el.querySelector(sel);
   const el = (tag, props={})=>{ const node=document.createElement(tag); Object.assign(node, props); return node; };
   const hr = ()=>el("hr",{className:"wl-hr"});
   const numOrStr = v => v==="" ? "" : (isFinite(+v) ? +v : v);
 
-  // ---- state ----
   const SYSTEMS = systemOptions();
   const state = {
     record:{
@@ -480,13 +499,11 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     values:{}
   };
 
-  // ---- UI root ----
   const root = $("#wl-root");
   const openBtn = $("#wl-open");
   openBtn.onclick = ()=>{ root.style.display="block"; openBtn.style.display="none"; render(); };
 
   function render(){
-    // refresh systems in case user edited in the main panel
     const opts = systemOptions();
     if (!opts.find(o=>o.id===state.record.systemId) && opts.length) {
       state.record.systemId = opts[0].id;
@@ -496,7 +513,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     root.innerHTML = "";
     root.append(el("div",{className:"wl-h", innerText:"Water Log Entry"}));
 
-    // Record header
     const rec = el("div",{className:"wl-row"});
     rec.append(
       fieldSelect("System", "systemId", opts.map(s=>s.id), state.record.systemId, (v)=>{
@@ -510,7 +526,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     );
     root.append(rec, hr());
 
-    // Dynamic fields
     const type = state.record.systemType;
     const spec = CONFIG_FIELDS.systems[type];
     const rows = el("div",{});
@@ -524,7 +539,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     });
     root.append(rows, hr());
 
-    // Actions & preview
     const actions = el("div",{className:"wl-row"});
     const saveBtn = el("button",{className:"wl-btn primary",innerText:"Save to Browser (JSON)"});
     saveBtn.onclick = saveLocal;
@@ -535,15 +549,35 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     actions.append(saveBtn, sendBtn, clearBtn);
     root.append(actions);
 
-    // Preview
     const preview = el("pre",{className:"wl-text",style:"white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:8px;border:1px solid #eee;margin-top:8px"});
     preview.textContent = JSON.stringify(makePayload(), null, 2);
     root.append(preview);
 
-    // Lightweight CSV row
     const csv = el("div",{className:"wl-small",style:"margin-top:6px"});
     csv.innerText = "CSV row (preview only): " + csvRow();
     root.append(csv);
+  }
+
+  function fieldInput(label, key, type, value, oninput){
+    const w = el("div",{});
+    if(label) w.append(el("div",{className:"wl-label",innerText:label}));
+    const i = el("input",{className:"wl-input",type, value});
+    i.oninput = (e)=>oninput(e.target.value);
+    w.append(i);
+    return w;
+  }
+  function fieldSelect(label, key, options, value, onchange){
+    const w = el("div",{});
+    w.append(el("div",{className:"wl-label",innerText:label}));
+    const s = el("select",{className:"wl-select"});
+    options.forEach(o=>{
+      const op = el("option",{value:o,innerText:o});
+      if(o===value) op.selected = true;
+      s.append(op);
+    });
+    s.onchange = (e)=>onchange(e.target.value);
+    w.append(s);
+    return w;
   }
 
   function singleRow(name){
@@ -593,34 +627,9 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     return box;
   }
 
-  // ---- small UI builders ----
-  function fieldInput(label, key, type, value, oninput){
-    const w = el("div",{});
-    if(label) w.append(el("div",{className:"wl-label",innerText:label}));
-    const i = el("input",{className:"wl-input",type, value});
-    i.oninput = (e)=>oninput(e.target.value);
-    w.append(i);
-    return w;
-  }
-  function fieldSelect(label, key, options, value, onchange){
-    const w = el("div",{});
-    w.append(el("div",{className:"wl-label",innerText:label}));
-    const s = el("select",{className:"wl-select"});
-    options.forEach(o=>{
-      const op = el("option",{value:o,innerText:o});
-      if(o===value) op.selected = true;
-      s.append(op);
-    });
-    s.onchange = (e)=>onchange(e.target.value);
-    w.append(s);
-    return w;
-  }
-
-  // ---- value getters/setters ----
   const getVal = k => state.values[k];
   const setVal = (k,v)=>{ state.values[k]=v; };
 
-  // ---- payload + local save ----
   function makePayload(){
     const payload = { record:{...state.record}, ...state.values };
     if(payload.record.systemType!=="boiler" && state.chemicals.length) payload.chemicalsAdded = state.chemicals;
@@ -634,7 +643,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     alert("Saved to this browser (JSON list).");
   }
 
-  // ---- send into your Monthly Grid (DB) ----
   function ensureArray(arr){ return Array.isArray(arr)?arr:[]; }
   function addIfMissing(arr, val){ if(!arr.includes(val)) arr.push(val); }
 
@@ -650,7 +658,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     const CONFIG = loadConfig();
     const DB = loadDB();
 
-    // Ensure base structures
     CONFIG.bySystem = CONFIG.bySystem || {};
     CONFIG.bySystem[sys] = CONFIG.bySystem[sys] || { points:["Form Entry"], fields:[] };
 
@@ -658,14 +665,10 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     cfg.points = ensureArray(cfg.points);
     cfg.fields = ensureArray(cfg.fields);
 
-    // Decide where to write:
-    // - If East/West values exist => use "East" and "West" points (create if needed)
-    // - Otherwise, use a single "Form Entry" point
     const hasEW = Object.keys(p).some(k => /_(east|west)$/.test(k));
     const pointsToUse = hasEW ? ["East","West"] : ["Form Entry"];
     pointsToUse.forEach(pt => addIfMissing(cfg.points, pt));
 
-    // Build field names set from payload keys (friendly labels)
     function fieldLabelForKey(k){
       const base = k.replace(/_(east|west)$/,'');
       return CONFIG_FIELDS.labels[base] || base;
@@ -680,7 +683,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
       DB[sys][ym][day][pt][label] = (value===undefined || value===null) ? '' : value;
     };
 
-    // Map payload -> grid cells
     Object.keys(p).forEach(k=>{
       if(k==="record" || k==="chemicalsAdded") return;
       const v = p[k];
@@ -689,7 +691,6 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
       else { writeCell('Form Entry', fieldLabelForKey(k), v); }
     });
 
-    // Optionally persist a chemicals summary if present
     if (Array.isArray(p.chemicalsAdded) && p.chemicalsAdded.length){
       addIfMissing(cfg.fields, "Chemicals Added");
       writeCell(hasEW ? 'East' : 'Form Entry', "Chemicals Added",
@@ -697,10 +698,9 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
       );
     }
 
-    // Save and try to refresh main grid if it's on the same system & month
     saveDB(DB); saveCONFIG(CONFIG);
     try{
-      if (window.saveAll) window.saveAll(); // main app’s helper (no-op if absent)
+      if (window.saveAll) window.saveAll();
       if (window.systemSel && window.monthSel && window.buildGrid){
         const selSys = window.systemSel.value;
         const selYM  = window.monthSel.value;
@@ -708,10 +708,9 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
       }
     }catch(e){}
 
-    alert(`Sent to Monthly Grid: ${sys} — ${ym} (day ${day}).\nIf that grid is open for this system/month, it should now show the values.`);
+    alert(`Sent to Monthly Grid: ${sys} — ${ym} (day ${day}).`);
   }
 
-  // ---- CSV preview ----
   function csvRow(){
     const p = makePayload();
     const flat = [];
@@ -726,282 +725,10 @@ function ensureHasAtLeastOneSystem(){ if(CONFIG.systems && CONFIG.systems.length
     return flat.map(x=> (x===undefined?"":String(x)).replace(/,/g,";") ).join(",");
   }
 
-  // Auto-open if query ?openWaterLog=1
-  if(location.search.includes("openWaterLog=1")) { openBtn.click(); }
+  const rootEl = document.getElementById('wl-root');
+  const openBtnEl = document.getElementById('wl-open');
+  if(location.search.includes("openWaterLog=1")) { openBtnEl.click(); }
 })();
 </script>
-
-<script>
-(function(){
-  // ----- CONFIG: systems & fields (based on your sheets) -----
-  const SYSTEMS = [
-    { id:"Cooling Tower #1", type:"cooling_tower" },
-    { id:"Cooling Tower #2", type:"cooling_tower" },
-    { id:"Central Chilled Water", type:"chilled_water" },
-    { id:"Central Hot Water", type:"hot_water" },
-    { id:"B Condensate Return", type:"condensate_return" },
-    { id:"J Condensate Return", type:"condensate_return" },
-    { id:"J Boiler - Laundry", type:"boiler" },
-    { id:"J2 Boiler - Food Factory", type:"boiler" }
-  ];
-
-  const CONFIG = {
-    labels:{
-      pH:"pH",
-      totalHardness:"Total Hardness (ppm as CaCO3)",
-      conductivity:"Conductivity (µS/cm)",
-      orp:"ORP (mV)",
-      meterM:"M (meter index)",
-      ptsa:"PTSA (ppb)",
-      nitrite:"Nitrite (ppm)",
-      tds:"Total Dissolved Solids (ppm)",
-      gallons:"Gallons (feed)",
-      manualBlowdown:"Manual Blowdown (e.g., '10 sec')",
-      continuousBlowdown:"Continuous Blowdown (CBD, %)",
-      softenerNumber:"Softener #",
-      chlorine:"Chlorine (ppm)",
-      alkalinity:"Alkalinity (ppm as CaCO3)",
-      sulfite:"Sulfite (ppm as SO3)",
-      phosphate:"Phosphate (ppm as PO4)",
-      deha:"DEHA (ppm)",
-      returnHardness:"Return Hardness (ppm)",
-      comments:"Comments",
-    },
-    systems:{
-      condensate_return:{
-        show:["pH","totalHardness","conductivity"],
-        perSide:["pH","totalHardness","conductivity"] // East/West
-      },
-      cooling_tower:{
-        show:["pH","orp","meterM","totalHardness","ptsa","conductivity","chemicals","comments"]
-      },
-      chilled_water:{
-        show:["nitrite","tds","pH","totalHardness","chemicals","comments"],
-        hide:["conductivity"]
-      },
-      hot_water:{
-        show:["nitrite","tds","pH","totalHardness","chemicals","comments"]
-      },
-      boiler:{
-        show:[
-          "gallons","manualBlowdown","continuousBlowdown","softenerNumber",
-          "chlorine","totalHardness","alkalinity","pH","sulfite",
-          "conductivity","phosphate","deha","returnHardness","comments"
-        ],
-        hide:["chemicals"]
-      }
-    }
-  };
-
-  // ---- helpers ----
-  const $ = (sel, el=document)=>el.querySelector(sel);
-  const el = (tag, props={})=>{
-    const node = document.createElement(tag);
-    Object.assign(node, props);
-    return node;
-  };
-
-  // ---- state ----
-  const state = {
-    record:{
-      site:"AHCC",
-      systemId:SYSTEMS[0].id,
-      systemType:SYSTEMS[0].type,
-      date:new Date().toISOString().slice(0,10),
-      time:new Date().toTimeString().slice(0,5),
-      operator:""
-    },
-    chemicals:[/* {name,amount,unit,note} */],
-    values:{} // dynamic fields stored here
-  };
-
-  // ---- UI root ----
-  const root = $("#wl-root");
-  const openBtn = $("#wl-open");
-  openBtn.onclick = ()=>{ root.style.display="block"; openBtn.style.display="none"; render(); };
-
-  function render(){
-    root.innerHTML = "";
-    root.append(
-      el("div",{className:"wl-h", innerText:"Water Log Entry"}),
-    );
-
-    // Record header
-    const rec = el("div",{className:"wl-row"});
-    rec.append(
-      fieldSelect("System", "systemId", SYSTEMS.map(s=>s.id), state.record.systemId, (v)=>{
-        state.record.systemId = v;
-        state.record.systemType = (SYSTEMS.find(s=>s.id===v)||{}).type || "cooling_tower";
-        render();
-      }),
-      fieldInput("Date","date","date",state.record.date,(v)=>state.record.date=v),
-      fieldInput("Time","time","time",state.record.time,(v)=>state.record.time=v),
-      fieldInput("Operator","operator","text",state.record.operator,(v)=>state.record.operator=v)
-    );
-    root.append(rec, hr());
-
-    // System type display
-    const type = state.record.systemType;
-    const spec = CONFIG.systems[type];
-    root.append(el("div",{className:"wl-small",innerText:`System type: ${type}`}));
-
-    // Dynamic fields
-    const rows = el("div",{});
-    (spec.show||[]).forEach(name=>{
-      if(name==="chemicals") { rows.append(chemicalsBlock()); return; }
-      if(spec.perSide && spec.perSide.includes(name)){
-        rows.append(perSideRow(name));
-      } else {
-        rows.append(singleRow(name));
-      }
-    });
-    root.append(rows, hr());
-
-    // Actions & preview
-    const actions = el("div",{className:"wl-row"});
-    const saveBtn = el("button",{className:"wl-btn primary",innerText:"Save to Browser"});
-    saveBtn.onclick = save;
-    const clearBtn = el("button",{className:"wl-btn",innerText:"Clear"});
-    clearBtn.onclick = ()=>{ state.values={}; state.chemicals=[]; render(); };
-    actions.append(saveBtn, clearBtn);
-    root.append(actions);
-
-    // Preview
-    const preview = el("pre",{className:"wl-text",style:"white-space:pre-wrap;background:#fafafa;padding:10px;border-radius:8px;border:1px solid #eee;margin-top:8px"});
-    preview.textContent = JSON.stringify(makePayload(), null, 2);
-    root.append(preview);
-
-    // Lightweight CSV row (for future export)
-    const csv = el("div",{className:"wl-small",style:"margin-top:6px"});
-    csv.innerText = "CSV row (preview only): " + csvRow();
-    root.append(csv);
-  }
-
-  function singleRow(name){
-    const label = CONFIG.labels[name] || name;
-    const wrap = el("div",{className:"wl-row"});
-    wrap.append(
-      fieldInput(label, name, "number", getVal(name) ?? "", (v)=> setVal(name, numOrStr(v)))
-    );
-    return wrap;
-  }
-
-  function perSideRow(name){
-    const label = CONFIG.labels[name] || name;
-    const row = el("div",{className:"wl-row"});
-    const eastKey = name+"_east";
-    const westKey = name+"_west";
-    row.append(
-      el("div",{innerHTML:`<div class="wl-label">${label} — East</div>`}),
-      el("div",{innerHTML:`<div class="wl-label">${label} — West</div>`}),
-    );
-    const r2 = el("div",{className:"wl-row"});
-    r2.append(
-      el("div",{}),
-      fieldInput("", eastKey, "number", getVal(eastKey) ?? "", v=>setVal(eastKey,numOrStr(v))),
-      fieldInput("", westKey, "number", getVal(westKey) ?? "", v=>setVal(westKey,numOrStr(v)))
-    );
-    const wrap = el("div",{});
-    wrap.append(el("div",{className:"wl-h",innerText:label}), r2);
-    return wrap;
-  }
-
-  function chemicalsBlock(){
-    const box = el("div",{});
-    box.append(el("div",{className:"wl-h",innerText:"Chemicals Added"}));
-    const list = el("div",{className:"wl-row"});
-    state.chemicals.forEach((c,i)=>{
-      const chip = el("div",{className:"wl-chip"});
-      chip.append(
-        el("span",{innerText:`${c.name||"?"} ${c.amount||""} ${c.unit||""}`}),
-        el("button",{className:"wl-btn",innerText:"✕",onclick:()=>{state.chemicals.splice(i,1);render();}})
-      );
-      list.append(chip);
-    });
-    box.append(list);
-
-    const row = el("div",{className:"wl-row"});
-    let tmp = {name:"",amount:"",unit:"",note:""};
-    row.append(
-      fieldInput("Name","chem_name","text","",v=>tmp.name=v),
-      fieldInput("Amount","chem_amt","number","",v=>tmp.amount=numOrStr(v)),
-      fieldInput("Unit","chem_unit","text","",v=>tmp.unit=v),
-      fieldInput("Note","chem_note","text","",v=>tmp.note=v)
-    );
-    const add = el("button",{className:"wl-btn",innerText:"Add Chemical",onclick:()=>{
-      state.chemicals.push({...tmp});
-      render();
-    }});
-    box.append(row, add);
-    return box;
-  }
-
-  // ---- small UI builders ----
-  function fieldInput(label, key, type, value, oninput){
-    const w = el("div",{});
-    if(label) w.append(el("div",{className:"wl-label",innerText:label}));
-    const i = el("input",{className:"wl-input",type, value});
-    i.oninput = (e)=>oninput(e.target.value);
-    w.append(i);
-    return w;
-  }
-  function fieldSelect(label, key, options, value, onchange){
-    const w = el("div",{});
-    w.append(el("div",{className:"wl-label",innerText:label}));
-    const s = el("select",{className:"wl-select"});
-    options.forEach(o=>{
-      const op = el("option",{value:o,innerText:o});
-      if(o===value) op.selected = true;
-      s.append(op);
-    });
-    s.onchange = (e)=>onchange(e.target.value);
-    w.append(s);
-    return w;
-  }
-  const hr = ()=>el("hr",{className:"wl-hr"});
-  const numOrStr = v => v==="" ? "" : (isFinite(+v) ? +v : v);
-
-  // ---- value getters/setters ----
-  const getVal = k => state.values[k];
-  const setVal = (k,v)=>{ state.values[k]=v; };
-
-  // ---- payload + storage ----
-  function makePayload(){
-    const payload = {
-      record:{...state.record},
-      ...state.values
-    };
-    if(payload.record.systemType!=="boiler" && state.chemicals.length) payload.chemicalsAdded = state.chemicals;
-    if(payload.comments===undefined){} // no-op
-    return payload;
-  }
-
-  function save(){
-    const key = "wl-entries";
-    const list = JSON.parse(localStorage.getItem(key)||"[]");
-    list.push(makePayload());
-    localStorage.setItem(key, JSON.stringify(list));
-    alert("Saved to this browser (localStorage).");
-  }
-
-  // ---- lightweight CSV row (preview only) ----
-  function csvRow(){
-    const p = makePayload();
-    const flat = [];
-    const base = ["site","systemId","systemType","date","time","operator"];
-    base.forEach(k=>flat.push(p.record[k]??""));
-    const keys = Object.keys(p).filter(k=>k!=="record");
-    keys.forEach(k=>{
-      if(k==="chemicalsAdded") flat.push(p[k].map(c=>`${c.name}:${c.amount}${c.unit}`).join("|"));
-      else if(typeof p[k]==="object" && p[k]!==null) flat.push(JSON.stringify(p[k]));
-      else flat.push(p[k]??"");
-    });
-    return flat.map(x=> (x===undefined?"":String(x)).replace(/,/g,";") ).join(",");
-  }
-
-  // Auto-open if query ?openWaterLog=1
-  if(location.search.includes("openWaterLog=1")) { openBtn.click(); }
-})();
-</script>
-<!-- === END WATER LOG MASTER FORM === --></body>
+</body>
 </html>
