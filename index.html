@@ -933,6 +933,9 @@
               const inp = document.createElement('input');
               inp.type = 'text';
               inp.className = 'cell-input';
+              // Set numeric keyboard by default, allow switch to letters for text-like fields
+              const isTextField = /comments|chemical added/i.test(field);
+              inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
               inp.value = val;
               inp.addEventListener('input', () => {
                 const value = inp.value;
@@ -1010,6 +1013,8 @@
             const inp = document.createElement('input');
             inp.type = 'text';
             inp.className = 'cell-input';
+            const isTextField = /comments|chemical added/i.test(field);
+            inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
             inp.value = val;
             inp.addEventListener('input', () => {
               const value = inp.value;
@@ -1289,6 +1294,9 @@
               const inp = document.createElement('input');
               inp.type = 'text';
               inp.className = 'cell-input';
+              // Use numeric keyboard by default, allow switch to letters
+              const isTextField = /comments|chemical added/i.test(field);
+              inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
               inp.value = val;
               // Use change event to avoid re-rendering on every keystroke
               inp.addEventListener('change', () => {
