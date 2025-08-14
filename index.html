@@ -1,54 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
-<!--
-  Daily Logs Application
-
-  This single‑file web app implements a simple logging tool for
-  water/boiler/cooling tower operations.  It is designed to run
-  entirely in the browser and persist data either locally (via
-  localStorage) or remotely via Firebase Firestore.  The goal is
-  to support multiple users entering daily test values, track
-  meter readings with automatic makeup calculations, highlight
-  values that fall outside of user‑defined ranges, and provide a
-  basic trending interface.
-
-  Features:
-    • Daily view for entering readings for a single date.  Users
-      select a system (e.g. Cooling Tower 1, Chilled Loop) and a
-      date.  The app builds a grid of points (equipment) and
-      fields (readings) where values can be typed in.  For fields
-      designated as meter readings, the app automatically
-      calculates delta (makeup) and a running total for the month.
-    • Monthly view that builds a table spanning the entire
-      month with days across columns and point/field rows.  This
-      is useful for printing or reviewing a month at a glance.
-    • Settings tab where administrators can add/edit systems,
-      points and fields, define high/low ranges for each field,
-      and switch between local and Firebase storage.  A short
-      Firebase configuration form is provided – paste your
-      project details here to enable multi‑user sync.
-    • Trends tab that renders a line chart (via Chart.js) for
-      any point/field over a date range.  This allows quick
-      inspection of trends without exporting to a spreadsheet.
-
-  The application stores its configuration under the key
-  `dailyLogConfig` and daily logs under `dailyLogData` in
-  localStorage.  When Firebase is enabled the same structures are
-  persisted to Firestore under the provided namespace.
-
-  Written August 2025.
--->
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daily Test Log</title>
-  <!-- Chart.js for trends -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- Firebase (optional) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <!-- SheetJS (XLSX) for Excel exports -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Inline styles replicate the look and feel of the original app -->
   <style>
     :root {
       --bg: #0f1320;
@@ -182,14 +138,6 @@
       z-index: 2;
     }
     .cell { min-width: 64px; }
-    .cell[contenteditable="true"] { outline: none; }
-    .cell:focus { box-shadow: 0 0 0 2px var(--accent) inset; }
-    .low-cell { background: rgba(76, 175, 80, 0.2); }  /* green */
-    .high-cell { background: rgba(255, 107, 107, 0.2); }/* red */
-    .ok-cell { background: transparent; }
-    /* Hide computed cells caret */
-    .computed { user-select: none; }
-    /* Input used inside editable cells to improve caret behavior */
     .cell-input {
       width: 100%;
       background: transparent;
@@ -199,10 +147,13 @@
       padding: 0;
       margin: 0;
       text-align: center;
-      /* Prevent iOS Safari from zooming on focus by setting minimum font-size */
       font-size: 16px;
     }
-    /* Print styles */
+    .cell:focus { box-shadow: 0 0 0 2px var(--accent) inset; }
+    .low-cell { background: rgba(76, 175, 80, 0.2); }
+    .high-cell { background: rgba(255, 107, 107, 0.2); }
+    .ok-cell { background: transparent; }
+    .computed { user-select: none; }
     @media print {
       body { background: #fff; color: #000; }
       header, .no-print { display: none !important; }
@@ -212,7 +163,6 @@
       th { background: #eee; color: #000; }
       .sticky-col { position: static; background: #fff; }
     }
-    /* Small utility button used in settings for add/delete operations */
     .small-btn {
       font-size: 12px;
       padding: 2px 6px;
@@ -221,18 +171,21 @@
       color: var(--ink);
       border: 1px solid var(--border);
       border-radius: 4px;
-      cursor: pointer;
     }
     .small-btn:hover {
       background: var(--accent);
       color: var(--bg);
     }
   </style>
+  <!-- External libraries: Supabase for backend, Chart.js for trends, SheetJS for exports -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <header>
     <h1>Daily Test Log</h1>
-    <span class="note">Offline capable. Use Settings to configure storage and systems.</span>
+    <p style="font-size:12px;">Offline capable. Use Settings to configure storage and systems.</p>
   </header>
   <nav class="tabs">
     <button class="tab active" data-target="daily">Daily</button>
@@ -240,119 +193,95 @@
     <button class="tab" data-target="settings">Settings</button>
     <button class="tab" data-target="trends">Trends</button>
   </nav>
-
-  <!-- Daily Tab Content -->
-  <div id="daily" class="tab-content active">
-    <div class="wrap">
-      <div class="card" id="dailyControls">
+  <div class="wrap">
+    <!-- Daily Tab Content -->
+    <div id="daily" class="tab-content active">
+      <div class="card">
         <h2>Controls</h2>
-        <div class="toolbar">
+        <div class="gridControls">
           <div>
             <label for="dailySystem">System</label>
             <select id="dailySystem"></select>
           </div>
           <div>
             <label for="dailyDate">Date</label>
-            <input id="dailyDate" type="date"/>
+            <input type="date" id="dailyDate">
           </div>
-          <div>
-            <button id="prevDay">◀ Prev</button>
-            <button id="nextDay">Next ▶</button>
+          <div style="display:flex; gap:4px;">
+            <button id="prevDay" style="flex:1;">◀ Prev</button>
+            <button id="nextDay" style="flex:1;">Next ▶</button>
           </div>
         </div>
-        <p class="note">Select a system and date to build the grid.</p>
       </div>
-      <div class="card" id="dailyGridCard">
+      <div class="card" id="dailyGridContainer">
         <h2 id="dailyGridTitle">Daily View</h2>
-        <div id="dailyGridContainer">
-          <!-- grid inserted here -->
-        </div>
       </div>
     </div>
-  </div>
-
-  <!-- Monthly Tab Content -->
-  <div id="monthly" class="tab-content">
-    <div class="wrap">
-      <div class="card" id="monthlyControls">
+    <!-- Monthly Tab Content -->
+    <div id="monthly" class="tab-content">
+      <div class="card">
         <h2>Monthly Controls</h2>
-        <div class="toolbar">
+        <div class="gridControls">
           <div>
             <label for="monthlySystem">System</label>
             <select id="monthlySystem"></select>
           </div>
           <div>
             <label for="monthlyMonth">Month</label>
-            <input id="monthlyMonth" type="month"/>
+            <input type="month" id="monthlyMonth">
           </div>
-          <div>
-            <button id="buildMonthly">Build Grid</button>
-          </div>
-          <div>
-            <button id="monthlyPrint">Print/PDF</button>
-          </div>
-          <div>
-            <button id="monthlyExport">Export CSV</button>
-          </div>
-          <div>
-            <button id="monthlyExportExcel">Export Excel</button>
-          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+          <button id="buildMonthly">Build Grid</button>
+          <button id="monthlyPrint">Print/PDF</button>
+          <button id="monthlyExport">Export CSV</button>
+          <button id="monthlyExportExcel">Export Excel</button>
         </div>
         <p class="note">Build a grid for the selected month. Values outside range are highlighted.</p>
       </div>
-      <div class="card" id="monthlyGridCard">
+      <div class="card" id="monthlyGridContainer">
         <h2 id="monthlyGridTitle">Monthly View</h2>
-        <div id="monthlyGridContainer">
-          <!-- monthly grid inserted here -->
-        </div>
       </div>
     </div>
-  </div>
-
-  <!-- Settings Tab Content -->
-  <div id="settings" class="tab-content">
-    <div class="wrap">
-      <div class="card" id="storageSettings">
+    <!-- Settings Tab Content -->
+    <div id="settings" class="tab-content">
+      <div class="card">
         <h2>Storage</h2>
         <label for="storageMode">Mode</label>
         <select id="storageMode">
           <option value="local">Local (this device only)</option>
           <option value="firebase">Firebase (shared across users)</option>
+          <option value="supabase">Supabase (shared across users)</option>
         </select>
         <label for="namespace">Namespace (site/project name)</label>
-        <input id="namespace" type="text" placeholder="daily-logs"/>
+        <input type="text" id="namespace">
         <div id="firebaseConfigSection" style="display:none;">
           <label for="firebaseConfig">Firebase Config (JSON)</label>
-          <textarea id="firebaseConfig" placeholder='{"apiKey": "...", "projectId": "...", ...}'></textarea>
+          <textarea id="firebaseConfig"></textarea>
           <button id="enableFirebase">Enable Firebase</button>
           <p class="note">Firestore will store settings and logs under the chosen namespace.</p>
         </div>
       </div>
-      <div class="card" id="systemSettings">
+      <div class="card">
         <h2>Systems / Points / Fields</h2>
-        <div class="gridControls">
-          <button id="addSystem">Add System</button>
-          <button id="seedDefaults">Seed Defaults</button>
-          <button id="exportBackup">Export Full Backup</button>
-          <button id="forceReset">Force Reset (clear storage)</button>
+        <div style="margin-bottom:8px;">
+          <button id="addSystem" class="small-btn">Add System</button>
+          <button id="seedDefaults" class="small-btn">Seed Defaults</button>
+          <button id="exportBackup" class="small-btn">Export Full Backup</button>
+          <button id="forceReset" class="small-btn">Force Reset (clear storage)</button>
         </div>
-        <div id="systemsList">
-          <!-- systems list inserted here -->
-        </div>
-        <h3>High/Low Ranges</h3>
-        <div id="rangesList">
-          <!-- ranges table inserted here -->
-        </div>
+        <div id="systemsList"></div>
+      </div>
+      <div class="card">
+        <h2>High/Low Ranges</h2>
+        <div id="rangesList"></div>
       </div>
     </div>
-  </div>
-
-  <!-- Trends Tab Content -->
-  <div id="trends" class="tab-content">
-    <div class="wrap">
-      <div class="card" id="trendControls">
+    <!-- Trends Tab Content -->
+    <div id="trends" class="tab-content">
+      <div class="card">
         <h2>Trend Controls</h2>
-        <div class="toolbar">
+        <div class="gridControls">
           <div>
             <label for="trendSystem">System</label>
             <select id="trendSystem"></select>
@@ -367,67 +296,39 @@
           </div>
           <div>
             <label for="trendFrom">From</label>
-            <input id="trendFrom" type="date"/>
+            <input type="date" id="trendFrom">
           </div>
           <div>
             <label for="trendTo">To</label>
-            <input id="trendTo" type="date"/>
+            <input type="date" id="trendTo">
           </div>
-          <div>
-            <button id="showTrend">Show Trend</button>
-          </div>
+          <button id="showTrend">Show Trend</button>
         </div>
-      </div>
-      <div class="card" id="trendChartCard">
         <h2 id="trendTitle">Trend</h2>
-        <canvas id="trendChart" height="300"></canvas>
+        <canvas id="trendChart" style="width:100%; height:300px;"></canvas>
       </div>
     </div>
   </div>
-
+  <!-- JavaScript to handle data, rendering and interactions -->
   <script>
-    /*
-     * Configuration and data structures
-     *
-     * config: {
-     *   systems: {
-     *     [systemName]: {
-     *       points: {
-     *         [pointName]: {
-     *           fields: [field1, field2, ...],
-     *           meterField?: name of the meter reading field (string),
-     *           calcField?: name of the delta field (string),
-     *           totalField?: name of the running total field (string)
-     *         }
-     *       }
-     *     }
-     *   },
-     *   ranges: {
-     *     "system|field": { low: number|null, high: number|null }
-     *   },
-     *   storage: {
-     *     mode: "local" | "firebase",
-     *     namespace: string,
-     *     firebaseConfig: object|null
-     *   }
-     * }
-     *
-     * logs: {
-     *   [date]: {
-     *     [system]: {
-     *       [point]: {
-     *         [field]: value
-     *       }
-     *     }
-     *   }
-     * }
-     */
+    // Core configuration and data structures
     const DEFAULT_NAMESPACE = 'daily-logs';
     let config = null;
     let logs = {};
     let firestore = null;
+    // Supabase credentials provided by the user
+    const SUPABASE_URL = 'https://hdtzibffzuesghcujjfc.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkdHppYmZmenVlc2doY3VqamZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUxNDAzMjUsImV4cCI6MjA3MDcxNjMyNX0.dd0BRl1D6XqvPbUIMFE-9xDr9YvDI0qyA2E5CMaq1ZI';
+    let supabaseClient = null;
 
-    /** Load configuration from storage or initialize defaults. */
+    // Initialize Supabase client when needed
+    function initSupabase() {
+      if (!supabaseClient) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      }
+    }
+
+    // Load configuration from local storage; remote config will override later if using supabase
     function loadConfig() {
       const stored = localStorage.getItem('dailyLogConfig');
       if (stored) {
@@ -439,7 +340,6 @@
         }
       }
       if (!config) {
-        // Initialize minimal config
         config = {
           systems: {},
           ranges: {},
@@ -448,16 +348,21 @@
       }
     }
 
-    /** Save configuration to localStorage and Firestore if enabled. */
+    // Save config to localStorage and optionally to Supabase or Firebase
     async function saveConfig() {
       localStorage.setItem('dailyLogConfig', JSON.stringify(config));
+      // Save to Firebase if enabled
       if (config.storage.mode === 'firebase' && firestore) {
         const ns = config.storage.namespace || DEFAULT_NAMESPACE;
         await firestore.collection('config').doc(ns).set(config);
       }
+      // Save to Supabase if enabled
+      if (config.storage.mode === 'supabase') {
+        await remoteSaveConfig();
+      }
     }
 
-    /** Load logs from storage (local or Firestore) into memory. */
+    // Load logs from local storage or remote
     async function loadLogs() {
       logs = {};
       if (config.storage.mode === 'firebase' && firestore) {
@@ -472,9 +377,12 @@
           try { logs = JSON.parse(stored); } catch (e) { logs = {}; }
         }
       }
+      if (config.storage.mode === 'supabase') {
+        await remoteLoadLogs();
+      }
     }
 
-    /** Save logs to storage. */
+    // Save logs to local storage or remote
     async function saveLogs() {
       if (config.storage.mode === 'firebase' && firestore) {
         const ns = config.storage.namespace || DEFAULT_NAMESPACE;
@@ -482,9 +390,12 @@
       } else {
         localStorage.setItem('dailyLogData', JSON.stringify(logs));
       }
+      if (config.storage.mode === 'supabase') {
+        await remoteSaveLogs();
+      }
     }
 
-    /** Initialize Firebase if config is provided. */
+    // Firebase initialization
     function initFirebase() {
       if (!config.storage.firebaseConfig) return;
       try {
@@ -495,22 +406,75 @@
       }
     }
 
-    /** Seed default systems and points. */
-    function seedDefaults() {
-      // Only seed if no systems yet
-      if (Object.keys(config.systems).length > 0) return;
-      /*
-        Define a comprehensive set of default systems.  Each system contains one
-        or more points and each point defines a list of fields.  Where
-        appropriate, a point may also define a meterField (the primary
-        reading), a calcField (the per‑day delta) and a totalField (the
-        month‑to‑date total).  These three properties enable the automatic
-        makeup calculations used throughout the app.
+    // Supabase: load config from remote table (namespace column "namespace", config json in "config")
+    async function remoteLoadConfig() {
+      if (config.storage.mode !== 'supabase') return;
+      initSupabase();
+      const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+      try {
+        const { data, error } = await supabaseClient
+          .from('config')
+          .select('config')
+          .eq('namespace', ns)
+          .single();
+        if (!error && data && data.config) {
+          config = data.config;
+        }
+      } catch (e) {
+        console.warn('Supabase load config error', e);
+      }
+    }
 
-        The following defaults were derived from the user’s specification.  If
-        additional systems or points are needed later they can be added via
-        the Settings tab.
-      */
+    // Supabase: save config
+    async function remoteSaveConfig() {
+      if (config.storage.mode !== 'supabase') return;
+      initSupabase();
+      const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+      try {
+        await supabaseClient
+          .from('config')
+          .upsert({ namespace: ns, config });
+      } catch (e) {
+        console.warn('Supabase save config error', e);
+      }
+    }
+
+    // Supabase: load logs
+    async function remoteLoadLogs() {
+      if (config.storage.mode !== 'supabase') return;
+      initSupabase();
+      const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+      try {
+        const { data, error } = await supabaseClient
+          .from('logs')
+          .select('data')
+          .eq('namespace', ns)
+          .single();
+        if (!error && data && data.data) {
+          logs = data.data;
+        }
+      } catch (e) {
+        console.warn('Supabase load logs error', e);
+      }
+    }
+
+    // Supabase: save logs
+    async function remoteSaveLogs() {
+      if (config.storage.mode !== 'supabase') return;
+      initSupabase();
+      const ns = config.storage.namespace || DEFAULT_NAMESPACE;
+      try {
+        await supabaseClient
+          .from('logs')
+          .upsert({ namespace: ns, data: logs });
+      } catch (e) {
+        console.warn('Supabase save logs error', e);
+      }
+    }
+
+    // Default systems for seeding
+    function seedDefaults() {
+      if (Object.keys(config.systems).length > 0) return;
       // B Condensate Return – two points (East/West) with pH, hardness and conductivity
       config.systems['B Condensate Return'] = {
         points: {
@@ -540,68 +504,53 @@
           }
         }
       };
-      // Central chilled water supply – single point with nitrite, TDS, etc.
+      // Central chilled water supply – single point
       config.systems['Central Chilled Water Supply Log'] = {
         points: {
           'Supply': { fields: ['Nitrite','Total Dissolved Solids (TDS / TD)','pH','Hardness','Chemical Added','Comments'] }
         }
       };
-      // Central hot water supply – similar fields as chilled water
+      // Central hot water supply
       config.systems['Central Hot Water Supply Log'] = {
         points: {
           'Supply': { fields: ['Nitrite','Total Dissolved Solids (TDS / TD)','pH','Hardness','Chemical Added','Comments'] }
         }
       };
-      // Boiler log – J Laundry – gallons used as meter with makeup logic
+      // Boiler log – J Laundry
       config.systems['Boiler Log – J Laundry'] = {
         points: {
           'Laundry': {
-            fields: [
-              'Gallons','Makeup (calc)','Total Makeup (calc)',
-              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
-              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
-              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
-            ],
+            fields: ['Gallons','Makeup (calc)','Total Makeup (calc)','Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)','Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity','Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'],
             meterField: 'Gallons',
             calcField: 'Makeup (calc)',
             totalField: 'Total Makeup (calc)'
           }
         }
       };
-      // Boiler log – J2 Food Factory – two boilers, each with same fields as laundry
+      // Boiler log – J2 Food Factory – two boilers
       config.systems['Boiler Log – J2 Food Factory'] = {
         points: {
           'Boiler 1': {
-            fields: [
-              'Gallons','Makeup (calc)','Total Makeup (calc)',
-              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
-              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
-              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
-            ],
+            fields: ['Gallons','Makeup (calc)','Total Makeup (calc)','Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)','Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity','Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'],
             meterField: 'Gallons',
             calcField: 'Makeup (calc)',
             totalField: 'Total Makeup (calc)'
           },
           'Boiler 2': {
-            fields: [
-              'Gallons','Makeup (calc)','Total Makeup (calc)',
-              'Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)',
-              'Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity',
-              'Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'
-            ],
+            fields: ['Gallons','Makeup (calc)','Total Makeup (calc)','Manual Blowdown','Continuous Blowdown (CBD)','Softener #','Chlorine (Cl)','Total Hardness (TH)','Alkalinity (ALK)','pH','Sulfite (SO3)','Conductivity','Phosphate (PO4)','DEHA','Total Hardness (return or feedwater)','Comments'],
             meterField: 'Gallons',
             calcField: 'Makeup (calc)',
             totalField: 'Total Makeup (calc)'
           }
         }
       };
-      // J Condensate Return – simple return with pH, hardness and conductivity
+      // J Condensate Return
       config.systems['J Condensate Return'] = {
         points: {
           'Return': { fields: ['pH','Total Hardness (TH)','Conductivity (UMHOS/CM)'] }
         }
       };
-      // Retain Gas Meter from original defaults
+      // Gas Meter
       config.systems['Gas Meter'] = {
         points: {
           'Gas': {
@@ -612,13 +561,14 @@
           }
         }
       };
+      // Save and re-render UI
       saveConfig();
       renderSystemOptions();
       renderSystemsList();
       renderRangesTable();
     }
 
-    /** Render the system selector options for daily, monthly and trend views. */
+    // Render system options for daily, monthly and trends
     function renderSystemOptions() {
       const dailySelect = document.getElementById('dailySystem');
       const monthlySelect = document.getElementById('monthlySystem');
@@ -638,15 +588,7 @@
       });
     }
 
-    /**
-     * Render list of systems, points and fields in the Settings tab.  This
-     * version provides buttons to add or delete systems, points and fields.
-     * Systems are shown as cards with their points nested underneath.  Each
-     * system has a "Delete" button and an "Add Point" button.  Each point
-     * lists its fields and provides an "Add Field" button plus delete
-     * buttons for individual fields and the point itself.  Deleting a
-     * system or point will also remove any associated log entries.
-     */
+    // Render list of systems, points and fields with add/delete/edit functionality
     function renderSystemsList() {
       const container = document.getElementById('systemsList');
       container.innerHTML = '';
@@ -654,13 +596,40 @@
       Object.entries(systems).forEach(([sysName, sysObj]) => {
         const sysDiv = document.createElement('div');
         sysDiv.className = 'card';
-        // System header with name and delete button
+        // System header
         const header = document.createElement('div');
         header.style.display = 'flex';
         header.style.justifyContent = 'space-between';
         header.style.alignItems = 'center';
         const title = document.createElement('h3');
         title.textContent = sysName;
+        // Enable rename on double-click
+        title.style.cursor = 'pointer';
+        title.title = 'Double-click to edit system name';
+        title.addEventListener('dblclick', () => {
+          const newName = prompt('Edit system name:', sysName);
+          if (!newName || newName === sysName) return;
+          if (config.systems[newName]) {
+            alert('System already exists');
+            return;
+          }
+          // Copy system and logs
+          config.systems[newName] = config.systems[sysName];
+          delete config.systems[sysName];
+          Object.keys(logs).forEach(date => {
+            if (logs[date] && logs[date][sysName]) {
+              logs[date][newName] = logs[date][sysName];
+              delete logs[date][sysName];
+            }
+          });
+          saveConfig();
+          saveLogs();
+          renderSystemOptions();
+          renderSystemsList();
+          renderRangesTable();
+          buildDailyGrid();
+          buildMonthlyGrid();
+        });
         header.appendChild(title);
         const sysBtns = document.createElement('div');
         const delSysBtn = document.createElement('button');
@@ -668,9 +637,9 @@
         delSysBtn.className = 'small-btn';
         delSysBtn.addEventListener('click', () => {
           if (!confirm(`Delete system "${sysName}" and all its data?`)) return;
-          // Remove logs for this system across all dates
+          // Remove logs for this system
           Object.keys(logs).forEach(date => {
-            if (logs[date][sysName]) delete logs[date][sysName];
+            if (logs[date] && logs[date][sysName]) delete logs[date][sysName];
           });
           delete config.systems[sysName];
           saveConfig();
@@ -688,13 +657,40 @@
         Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
           const ptDiv = document.createElement('div');
           ptDiv.style.marginBottom = '8px';
-          // Point header with name and delete button
+          // Point header
           const ptHeader = document.createElement('div');
           ptHeader.style.display = 'flex';
           ptHeader.style.justifyContent = 'space-between';
           ptHeader.style.alignItems = 'center';
           const ptTitle = document.createElement('strong');
           ptTitle.textContent = ptName;
+          // Enable rename for point
+          ptTitle.style.cursor = 'pointer';
+          ptTitle.title = 'Double-click to edit point name';
+          ptTitle.addEventListener('dblclick', () => {
+            const newPtName = prompt('Edit point name:', ptName);
+            if (!newPtName || newPtName === ptName) return;
+            if (config.systems[sysName].points[newPtName]) {
+              alert('Point already exists');
+              return;
+            }
+            config.systems[sysName].points[newPtName] = config.systems[sysName].points[ptName];
+            delete config.systems[sysName].points[ptName];
+            // Update logs
+            Object.keys(logs).forEach(date => {
+              if (logs[date]?.[sysName]?.[ptName]) {
+                logs[date][sysName][newPtName] = logs[date][sysName][ptName];
+                delete logs[date][sysName][ptName];
+              }
+            });
+            saveConfig();
+            saveLogs();
+            renderSystemOptions();
+            renderSystemsList();
+            renderRangesTable();
+            buildDailyGrid();
+            buildMonthlyGrid();
+          });
           ptHeader.appendChild(ptTitle);
           const ptBtns = document.createElement('div');
           const delPtBtn = document.createElement('button');
@@ -704,7 +700,7 @@
             if (!confirm(`Delete point "${ptName}" from system "${sysName}"?`)) return;
             // Remove logs for this point
             Object.keys(logs).forEach(date => {
-              if (logs[date][sysName] && logs[date][sysName][ptName]) {
+              if (logs[date]?.[sysName]?.[ptName]) {
                 delete logs[date][sysName][ptName];
               }
             });
@@ -724,13 +720,42 @@
           const fieldsUl = document.createElement('ul');
           fieldsUl.style.listStyle = 'disc';
           fieldsUl.style.paddingLeft = '20px';
-          ptObj.fields.forEach((fieldName, idx) => {
+          ptObj.fields.forEach((fieldName) => {
             const li = document.createElement('li');
-            // Label text
             const span = document.createElement('span');
             span.textContent = fieldName;
+            // Enable rename for field
+            span.style.cursor = 'pointer';
+            span.title = 'Double-click to edit field name';
+            span.addEventListener('dblclick', () => {
+              const newFieldName = prompt('Edit field name:', fieldName);
+              if (!newFieldName || newFieldName === fieldName) return;
+              if (ptObj.fields.includes(newFieldName)) {
+                alert('Field already exists'); return;
+              }
+              const idx = ptObj.fields.indexOf(fieldName);
+              if (idx >= 0) ptObj.fields[idx] = newFieldName;
+              // Update meter/calc/total definitions
+              if (ptObj.meterField === fieldName) ptObj.meterField = newFieldName;
+              if (ptObj.calcField === fieldName) ptObj.calcField = newFieldName;
+              if (ptObj.totalField === fieldName) ptObj.totalField = newFieldName;
+              // Update logs
+              Object.keys(logs).forEach(date => {
+                const ptLog = logs[date]?.[sysName]?.[ptName];
+                if (ptLog && Object.prototype.hasOwnProperty.call(ptLog, fieldName)) {
+                  ptLog[newFieldName] = ptLog[fieldName];
+                  delete ptLog[fieldName];
+                }
+              });
+              saveConfig();
+              saveLogs();
+              renderRangesTable();
+              renderSystemsList();
+              buildDailyGrid();
+              buildMonthlyGrid();
+            });
             li.appendChild(span);
-            // Delete field button (only for non‑calc fields)
+            // Delete field button (only for non-calc fields)
             const delFldBtn = document.createElement('button');
             delFldBtn.textContent = '×';
             delFldBtn.title = 'Delete field';
@@ -738,16 +763,13 @@
             delFldBtn.style.marginLeft = '6px';
             delFldBtn.addEventListener('click', () => {
               if (!confirm(`Delete field "${fieldName}" from point "${ptName}"?`)) return;
-              // Remove from fields array
               const idx = ptObj.fields.indexOf(fieldName);
               if (idx >= 0) ptObj.fields.splice(idx, 1);
-              // If deleting the meter/calculated fields, clear definitions
               if (ptObj.meterField === fieldName) {
                 delete ptObj.meterField;
                 delete ptObj.calcField;
                 delete ptObj.totalField;
               }
-              // Remove from logs
               Object.keys(logs).forEach(date => {
                 if (logs[date]?.[sysName]?.[ptName]?.hasOwnProperty(fieldName)) {
                   delete logs[date][sysName][ptName][fieldName];
@@ -760,7 +782,7 @@
               buildDailyGrid();
               buildMonthlyGrid();
             });
-            // Only append delete button for user‑defined (non calc) fields
+            // Show delete button only for non-calc fields
             const isCalc = fieldName.toLowerCase().includes('(calc)');
             if (!isCalc) li.appendChild(delFldBtn);
             fieldsUl.appendChild(li);
@@ -809,11 +831,10 @@
       });
     }
 
-    /** Render ranges table for editing high/low values. */
+    // Render ranges table for editing high/low values
     function renderRangesTable() {
       const container = document.getElementById('rangesList');
       container.innerHTML = '';
-      // Build table with system, field, low, high
       const table = document.createElement('table');
       const thead = document.createElement('thead');
       const thr = document.createElement('tr');
@@ -827,26 +848,22 @@
         const fieldsSet = new Set();
         Object.values(sysObj.points).forEach(pt => pt.fields.forEach(f => fieldsSet.add(f)));
         fieldsSet.forEach(field => {
-          // Only show editable ranges for non‑calc fields (skip "Makeup (calc)", "Total", etc.)
           const isCalc = field.toLowerCase().includes('(calc)');
           const tr = document.createElement('tr');
           const sysTd = document.createElement('td'); sysTd.textContent = sysName; tr.appendChild(sysTd);
           const fieldTd = document.createElement('td'); fieldTd.textContent = field; tr.appendChild(fieldTd);
-          const lowTd = document.createElement('td');
-          const lowInput = document.createElement('input'); lowInput.type = 'number'; lowInput.step = 'any'; lowInput.style.width = '80px';
           const key = `${sysName}|${field}`;
           const range = config.ranges[key] || { low: '', high: '' };
+          const lowTd = document.createElement('td');
+          const lowInput = document.createElement('input'); lowInput.type = 'number'; lowInput.step = 'any'; lowInput.style.width = '80px';
           lowInput.value = range.low ?? '';
           lowInput.disabled = isCalc;
           lowTd.appendChild(lowInput);
-          tr.appendChild(lowTd);
           const highTd = document.createElement('td');
           const highInput = document.createElement('input'); highInput.type = 'number'; highInput.step = 'any'; highInput.style.width = '80px';
           highInput.value = range.high ?? '';
           highInput.disabled = isCalc;
           highTd.appendChild(highInput);
-          tr.appendChild(highTd);
-          // Save on change
           function saveRange() {
             if (!config.ranges[key]) config.ranges[key] = { low:null, high:null };
             const lVal = lowInput.value !== '' ? parseFloat(lowInput.value) : null;
@@ -854,12 +871,13 @@
             config.ranges[key].low = lVal;
             config.ranges[key].high = hVal;
             saveConfig();
-            // Recalculate highlights in current views
             buildDailyGrid();
             buildMonthlyGrid();
           }
           lowInput.addEventListener('change', saveRange);
           highInput.addEventListener('change', saveRange);
+          tr.appendChild(lowTd);
+          tr.appendChild(highTd);
           tbody.appendChild(tr);
         });
       });
@@ -867,13 +885,14 @@
       container.appendChild(table);
     }
 
-    /** Build the daily grid for the selected system/date. */
+    // Build the daily grid for selected system and date
     function buildDailyGrid() {
       const sysName = document.getElementById('dailySystem').value;
       const date = document.getElementById('dailyDate').value;
       const container = document.getElementById('dailyGridContainer');
       const titleEl = document.getElementById('dailyGridTitle');
-      container.innerHTML = '';
+      // Clear container
+      while (container.children.length > 1) { container.removeChild(container.lastChild); }
       if (!sysName || !date) {
         titleEl.textContent = 'Daily View';
         return;
@@ -881,7 +900,6 @@
       titleEl.textContent = `${sysName} – ${date}`;
       const sys = config.systems[sysName];
       if (!sys) return;
-      // Ensure logs object exists for this date and system
       if (!logs[date]) logs[date] = {};
       if (!logs[date][sysName]) logs[date][sysName] = {};
       const table = document.createElement('table');
@@ -891,17 +909,16 @@
       corner.className = 'sticky-col';
       corner.textContent = 'Point / Field';
       headerRow.appendChild(corner);
-      // Determine whether to build a vertical or horizontal layout.  On small
-      // screens or when there are many fields, a vertical layout is easier
-      // to use on mobile devices.  We consider a layout vertical when
-      // the viewport width is <= 768px or the first point has more than 6
-      // fields.
+      // Determine layout (vertical or horizontal)
       const firstPoint = Object.values(sys.points)[0];
       const numPoints = Object.keys(sys.points).length;
       const verticalLayout = window.innerWidth <= 768 || firstPoint.fields.length > 6 || numPoints > 1;
       if (verticalLayout) {
-        container.innerHTML = '';
-        // Build a card for each point with fields listed vertically
+        // Remove any children beyond title
+        if (container.children.length > 1) {
+          while (container.children.length > 1) container.removeChild(container.lastChild);
+        }
+        // Build vertical cards
         Object.entries(sys.points).forEach(([ptName, ptObj]) => {
           const card = document.createElement('div');
           card.className = 'card';
@@ -911,8 +928,7 @@
           card.appendChild(ptHeader);
           const vtable = document.createElement('table');
           const vtbody = document.createElement('tbody');
-          // For vertical layout we keep a reference to this table for each row
-          ptObj.fields.forEach((field, colIdx) => {
+          ptObj.fields.forEach((field) => {
             const vr = document.createElement('tr');
             const thd = document.createElement('th');
             thd.textContent = field;
@@ -922,34 +938,30 @@
             const td = document.createElement('td');
             const isCalc = ptObj.calcField === field || ptObj.totalField === field;
             let val = '';
-            if (logs[date] && logs[date][sysName] && logs[date][sysName][ptName] && logs[date][sysName][ptName][field] !== undefined) {
+            if (logs[date]?.[sysName]?.[ptName]?.[field] !== undefined) {
               val = logs[date][sysName][ptName][field];
             }
             if (isCalc) {
               td.classList.add('computed');
               td.textContent = val;
             } else {
-              // Editable fields use an input element to avoid caret reset issues
               const inp = document.createElement('input');
               inp.type = 'text';
               inp.className = 'cell-input';
-              // Set numeric keyboard by default, allow switch to letters for text-like fields
               const isTextField = /comments|chemical added/i.test(field);
               inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
               inp.value = val;
               inp.addEventListener('input', () => {
                 const value = inp.value;
-                // Ensure nested objects exist
                 if (!logs[date]) logs[date] = {};
                 if (!logs[date][sysName]) logs[date][sysName] = {};
                 if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
                 logs[date][sysName][ptName][field] = value;
                 computeMakeupForPoint(date, sysName, ptName);
                 saveLogs();
-                // Update other fields for this point
+                // Update all cells for this point
                 ptObj.fields.forEach((f) => {
                   const vVal = logs[date]?.[sysName]?.[ptName]?.[f] ?? '';
-                  // Find the row element for f
                   const rows = vtbody.children;
                   for (let r = 0; r < rows.length; r++) {
                     const rowEl = rows[r];
@@ -969,12 +981,10 @@
                     }
                   }
                 });
-                // Apply range class to the current cell based on new value
                 applyRangeClass(td, sysName, field, value);
               });
               td.appendChild(inp);
             }
-            // Apply range class on initial render
             applyRangeClass(td, sysName, field, val);
             vr.appendChild(td);
             vtbody.appendChild(vr);
@@ -985,7 +995,7 @@
         });
         return;
       }
-      // Horizontal layout (default): build header row of fields
+      // Horizontal layout
       firstPoint.fields.forEach(field => {
         const th = document.createElement('th'); th.textContent = field; headerRow.appendChild(th);
       });
@@ -993,68 +1003,70 @@
       table.appendChild(thead);
       const tbody = document.createElement('tbody');
       Object.entries(sys.points).forEach(([ptName, ptObj]) => {
-        const row = document.createElement('tr');
-        // capture a reference to this row for event handlers to update cells
-        const rowRef = row;
-        const th = document.createElement('th'); th.textContent = ptName; th.className = 'sticky-col'; row.appendChild(th);
-        ptObj.fields.forEach(field => {
-          const td = document.createElement('td');
-          td.className = 'cell';
-          const isCalc = ptObj.calcField === field || ptObj.totalField === field;
-          let val = '';
-          if (logs[date][sysName][ptName] && logs[date][sysName][ptName][field] !== undefined) {
-            val = logs[date][sysName][ptName][field];
+        const rowRef = { current: null }; // wrapper for closure
+        ptObj.fields.forEach((field, fieldIdx) => {
+          const tr = document.createElement('tr');
+          if (fieldIdx === 0) {
+            const thPt = document.createElement('th');
+            thPt.className = 'sticky-col';
+            thPt.textContent = ptName;
+            thPt.rowSpan = ptObj.fields.length;
+            tr.appendChild(thPt);
           }
-          if (isCalc) {
-            td.classList.add('computed');
-            td.textContent = val;
-          } else {
-            // Use an input element for editable cells to preserve caret position
-            const inp = document.createElement('input');
-            inp.type = 'text';
-            inp.className = 'cell-input';
-            const isTextField = /comments|chemical added/i.test(field);
-            inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
-            inp.value = val;
-            inp.addEventListener('input', () => {
-              const value = inp.value;
-              if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
-              logs[date][sysName][ptName][field] = value;
-              // Recompute deltas and totals for this point
-              computeMakeupForPoint(date, sysName, ptName);
-              saveLogs();
-              // Update cells in the current row with the latest values.
-              ptObj.fields.forEach((f, i) => {
-                const targetCell = rowRef.children[i + 1];
-                const v = logs[date]?.[sysName]?.[ptName]?.[f] ?? '';
-                if (f !== field) {
-                  // update target cell appropriately based on whether it's computed or contains input
-                  if (targetCell.classList.contains('computed')) {
-                    targetCell.textContent = v;
-                  } else if (targetCell.firstElementChild && targetCell.firstElementChild.classList.contains('cell-input')) {
-                    targetCell.firstElementChild.value = v;
-                  } else {
-                    targetCell.textContent = v;
-                  }
+          const fieldCell = document.createElement('th');
+          fieldCell.textContent = field;
+          fieldCell.className = 'sticky-col';
+          tr.appendChild(fieldCell);
+          for (let day = 1; day <= new Date(date.slice(0,7).split('-')[0], date.slice(0,7).split('-')[1], 0).getDate(); day++) {
+            const dd = String(day).padStart(2, '0');
+            const yyyy = date.slice(0,4);
+            const mm = date.slice(5,7);
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            if (!logs[dateStr]) logs[dateStr] = {};
+            if (!logs[dateStr][sysName]) logs[dateStr][sysName] = {};
+            if (!logs[dateStr][sysName][ptName]) logs[dateStr][sysName][ptName] = {};
+            const td = document.createElement('td');
+            td.className = 'cell';
+            let val = logs[dateStr][sysName][ptName][field] ?? '';
+            const isCalc = ptObj.calcField === field || ptObj.totalField === field;
+            if (isCalc) {
+              td.classList.add('computed');
+              td.textContent = val;
+            } else {
+              const inp = document.createElement('input');
+              inp.type = 'text';
+              inp.className = 'cell-input';
+              const isTextField = /comments|chemical added/i.test(field);
+              inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
+              inp.value = val;
+              inp.addEventListener('change', () => {
+                const value = inp.value;
+                logs[dateStr][sysName][ptName][field] = value;
+                if (ptObj.meterField === field) {
+                  const y = parseInt(yyyy, 10);
+                  const m = parseInt(mm, 10);
+                  recomputeMakeupForMonth(sysName, ptName, y, m);
+                } else {
+                  computeMakeupForPoint(dateStr, sysName, ptName);
+                  const nextDate = findNextDate(dateStr);
+                  if (nextDate) computeMakeupForPoint(nextDate, sysName, ptName);
                 }
-                applyRangeClass(targetCell, sysName, f, v);
+                saveLogs();
+                buildMonthlyGrid();
               });
-              // Apply range class on the current cell
-              applyRangeClass(td, sysName, field, value);
-            });
-            td.appendChild(inp);
+              td.appendChild(inp);
+            }
+            applyRangeClass(td, sysName, field, val);
+            tr.appendChild(td);
           }
-          // Apply range class for initial render
-          applyRangeClass(td, sysName, field, val);
-          row.appendChild(td);
+          tbody.appendChild(tr);
         });
-        tbody.appendChild(row);
       });
       table.appendChild(tbody);
       container.appendChild(table);
     }
 
-    /** Compute delta and total values for meter points. */
+    // Compute deltas and totals for meter points
     function computeMakeupForPoint(date, sysName, ptName) {
       const sys = config.systems[sysName];
       if (!sys) return;
@@ -1063,17 +1075,14 @@
       const calcField = pt.calcField;
       const totalField = pt.totalField;
       if (!meterField || !calcField || !totalField) return;
-      // Current value (string) -> float
       const currentVal = logs[date]?.[sysName]?.[ptName]?.[meterField];
       const curr = parseFloat(currentVal);
       if (isNaN(curr)) {
-        // Clear calc and total
         if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
         logs[date][sysName][ptName][calcField] = '';
         logs[date][sysName][ptName][totalField] = '';
         return;
       }
-      // Find previous date for same system/point
       const prevDate = findPreviousDate(date);
       let prev = null;
       if (prevDate && logs[prevDate]?.[sysName]?.[ptName]?.[meterField] !== undefined) {
@@ -1081,15 +1090,15 @@
         if (isNaN(prev)) prev = null;
       }
       const delta = prev !== null ? curr - prev : null;
-      // Total: sum of deltas from the first day of month up to current date
       let total = 0;
       const [year, month] = date.split('-');
-      const monthStart = new Date(year, month - 1, 1);
-      for (let d = new Date(monthStart); d <= new Date(date); d.setDate(d.getDate() + 1)) {
-        const dd = d.toISOString().slice(0,10);
-        if (logs[dd]?.[sysName]?.[ptName]) {
-          const v = parseFloat(logs[dd][sysName][ptName][meterField]);
-          const prevD = findPreviousDate(dd);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dd = String(d).padStart(2,'0');
+        const ds = `${year}-${month}-${dd}`;
+        if (logs[ds]?.[sysName]?.[ptName]) {
+          const v = parseFloat(logs[ds][sysName][ptName][meterField]);
+          const prevD = findPreviousDate(ds);
           let pv = null;
           if (prevD && logs[prevD]?.[sysName]?.[ptName]?.[meterField] !== undefined) {
             pv = parseFloat(logs[prevD][sysName][ptName][meterField]);
@@ -1105,106 +1114,20 @@
       logs[date][sysName][ptName][totalField] = !isNaN(total) && total > 0 ? total.toFixed(2) : '';
     }
 
-    /** Find the most recent previous date in logs before given date. */
+    // Find previous date in logs
     function findPreviousDate(date) {
       const dates = Object.keys(logs).filter(d => d < date).sort();
       return dates.length ? dates[dates.length - 1] : null;
     }
 
-    /** Find the next chronological date string after the given date. */
+    // Find next chronological date
     function findNextDate(date) {
       const d = new Date(date);
       d.setDate(d.getDate() + 1);
       return d.toISOString().slice(0,10);
     }
 
-    /**
-     * Export the current monthly view (selected system and month) to a CSV file.
-     * The CSV contains columns Date, Point, Field and Value and can be opened
-     * directly in Excel.  If no system is selected the function alerts the user.
-     */
-    function exportMonthlyCsv() {
-      const sysName = document.getElementById('monthlySystem').value;
-      const monthVal = document.getElementById('monthlyMonth').value;
-      if (!sysName || !monthVal) {
-        alert('Select a system and month first.');
-        return;
-      }
-      const [year, month] = monthVal.split('-');
-      const sysObj = config.systems[sysName];
-      if (!sysObj) return;
-      let csv = 'Date,Point,Field,Value\n';
-      // Iterate over each day of the month
-      const daysInMonth = new Date(year, month, 0).getDate();
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dd = String(day).padStart(2, '0');
-        const dateStr = `${year}-${month}-${dd}`;
-        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
-          ptObj.fields.forEach(field => {
-            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
-            // Escape quotes
-            const safeVal = String(val).replace(/"/g, '""');
-            csv += `${dateStr},${ptName},"${field}","${safeVal}"\n`;
-          });
-        });
-      }
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      // File name includes system and month for clarity
-      a.download = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    /**
-     * Export the current monthly view (selected system and month) to an Excel
-     * file (.xlsx).  Uses SheetJS library loaded in the page.  The data
-     * structure is the same as the CSV export: each row contains Date,
-     * Point, Field and Value.  The resulting file opens directly in
-     * Microsoft Excel or other spreadsheet programs.
-     */
-    function exportMonthlyExcel() {
-      const sysName = document.getElementById('monthlySystem').value;
-      const monthVal = document.getElementById('monthlyMonth').value;
-      if (!sysName || !monthVal) {
-        alert('Select a system and month first.');
-        return;
-      }
-      const [year, month] = monthVal.split('-');
-      const sysObj = config.systems[sysName];
-      if (!sysObj) return;
-      // Build array of objects for SheetJS
-      const rows = [];
-      const daysInMonth = new Date(year, month, 0).getDate();
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dd = String(day).padStart(2, '0');
-        const dateStr = `${year}-${month}-${dd}`;
-        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
-          ptObj.fields.forEach(field => {
-            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
-            rows.push({ Date: dateStr, Point: ptName, Field: field, Value: val });
-          });
-        });
-      }
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(rows, { header: ['Date','Point','Field','Value'] });
-      XLSX.utils.book_append_sheet(wb, ws, 'Data');
-      const filename = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.xlsx`;
-      XLSX.writeFile(wb, filename);
-    }
-
-    /**
-     * Recompute makeup (delta and total) values for all days of a given month
-     * for the specified system and point.  This is used when the user edits
-     * a meter reading in the monthly view so that subsequent days are
-     * recalculated correctly.  The month parameter should be a number
-     * 1–12 (as returned by Date.getMonth()+1).  The year is full year.
-     */
+    // Recompute makeup for entire month for meter changes
     function recomputeMakeupForMonth(sysName, ptName, year, month) {
       const daysInMonth = new Date(year, month, 0).getDate();
       const mm = String(month).padStart(2,'0');
@@ -1215,7 +1138,7 @@
       }
     }
 
-    /** Apply high/low range classes to cell. */
+    // Apply range classes
     function applyRangeClass(cell, system, field, value) {
       cell.classList.remove('low-cell','high-cell','ok-cell');
       const key = `${system}|${field}`;
@@ -1235,29 +1158,30 @@
       }
     }
 
-    /** Build the monthly grid when requested. */
+    // Build monthly grid for selected system and month
     function buildMonthlyGrid() {
       const sysName = document.getElementById('monthlySystem').value;
       const monthStr = document.getElementById('monthlyMonth').value;
       const container = document.getElementById('monthlyGridContainer');
       const titleEl = document.getElementById('monthlyGridTitle');
-      container.innerHTML = '';
+      // Remove previous table
+      while (container.children.length > 1) { container.removeChild(container.lastChild); }
       if (!sysName || !monthStr) {
         titleEl.textContent = 'Monthly View';
         return;
       }
-      const [year, month] = monthStr.split('-');
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0);
-      const daysInMonth = monthEnd.getDate();
       titleEl.textContent = `${sysName} – ${monthStr}`;
+      const [year, month] = monthStr.split('-');
       const sys = config.systems[sysName];
       if (!sys) return;
-      // Build table with days across columns
+      const daysInMonth = new Date(year, month, 0).getDate();
       const table = document.createElement('table');
       const thead = document.createElement('thead');
       const hr = document.createElement('tr');
-      const corner = document.createElement('th'); corner.textContent = 'Point / Field'; corner.className = 'sticky-col'; hr.appendChild(corner);
+      const corner = document.createElement('th');
+      corner.textContent = 'Point / Field';
+      corner.className = 'sticky-col';
+      hr.appendChild(corner);
       for (let d = 1; d <= daysInMonth; d++) {
         const th = document.createElement('th'); th.textContent = d; hr.appendChild(th);
       }
@@ -1267,25 +1191,26 @@
       Object.entries(sys.points).forEach(([ptName, ptObj]) => {
         ptObj.fields.forEach((field, fieldIdx) => {
           const tr = document.createElement('tr');
-          const th = document.createElement('th'); th.className = 'sticky-col';
           if (fieldIdx === 0) {
-            th.textContent = ptName;
-            th.rowSpan = ptObj.fields.length;
+            const thPt = document.createElement('th');
+            thPt.className = 'sticky-col';
+            thPt.textContent = ptName;
+            thPt.rowSpan = ptObj.fields.length;
+            tr.appendChild(thPt);
           }
-          tr.appendChild(th);
           const fieldCell = document.createElement('th');
           fieldCell.textContent = field;
           fieldCell.className = 'sticky-col';
           tr.appendChild(fieldCell);
           for (let day = 1; day <= daysInMonth; day++) {
-            const dateObj = new Date(year, month - 1, day);
-            const date = dateObj.toISOString().slice(0,10);
+            const dd = String(day).padStart(2,'0');
+            const dateStr = `${year}-${month}-${dd}`;
+            if (!logs[dateStr]) logs[dateStr] = {};
+            if (!logs[dateStr][sysName]) logs[dateStr][sysName] = {};
+            if (!logs[dateStr][sysName][ptName]) logs[dateStr][sysName][ptName] = {};
+            let val = logs[dateStr][sysName][ptName][field] ?? '';
             const td = document.createElement('td');
             td.className = 'cell';
-            let val = '';
-            if (logs[date]?.[sysName]?.[ptName]?.[field] !== undefined) {
-              val = logs[date][sysName][ptName][field];
-            }
             const isCalc = ptObj.calcField === field || ptObj.totalField === field;
             if (isCalc) {
               td.classList.add('computed');
@@ -1294,33 +1219,22 @@
               const inp = document.createElement('input');
               inp.type = 'text';
               inp.className = 'cell-input';
-              // Use numeric keyboard by default, allow switch to letters
               const isTextField = /comments|chemical added/i.test(field);
               inp.setAttribute('inputmode', isTextField ? 'text' : 'decimal');
               inp.value = val;
-              // Use change event to avoid re-rendering on every keystroke
               inp.addEventListener('change', () => {
                 const value = inp.value;
-                // Ensure nested objects exist
-                if (!logs[date]) logs[date] = {};
-                if (!logs[date][sysName]) logs[date][sysName] = {};
-                if (!logs[date][sysName][ptName]) logs[date][sysName][ptName] = {};
-                logs[date][sysName][ptName][field] = value;
-                // If the edited field is the meter field, recompute deltas for the entire month
+                logs[dateStr][sysName][ptName][field] = value;
                 if (ptObj.meterField === field) {
-                  // Determine month boundaries
                   const y = parseInt(year,10);
                   const m = parseInt(month,10);
                   recomputeMakeupForMonth(sysName, ptName, y, m);
                 } else {
-                  // Otherwise, just recompute for this date and the following date (to update totals)
-                  computeMakeupForPoint(date, sysName, ptName);
-                  // compute next day to update delta that depends on this day
-                  const nextDate = findNextDate(date);
+                  computeMakeupForPoint(dateStr, sysName, ptName);
+                  const nextDate = findNextDate(dateStr);
                   if (nextDate) computeMakeupForPoint(nextDate, sysName, ptName);
                 }
                 saveLogs();
-                // Rebuild monthly grid to reflect changes and recalculate highlighting
                 buildMonthlyGrid();
               });
               td.appendChild(inp);
@@ -1335,7 +1249,72 @@
       container.appendChild(table);
     }
 
-    /** Show trend chart for selected system, point, field, and date range. */
+    // Export monthly view to CSV
+    function exportMonthlyCsv() {
+      const sysName = document.getElementById('monthlySystem').value;
+      const monthVal = document.getElementById('monthlyMonth').value;
+      if (!sysName || !monthVal) {
+        alert('Select a system and month first.');
+        return;
+      }
+      const [year, month] = monthVal.split('-');
+      const sysObj = config.systems[sysName];
+      if (!sysObj) return;
+      let csv = 'Date,Point,Field,Value\n';
+      const daysInMonth = new Date(year, month, 0).getDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dd = String(day).padStart(2, '0');
+        const dateStr = `${year}-${month}-${dd}`;
+        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
+          ptObj.fields.forEach(field => {
+            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
+            const safeVal = String(val).replace(/"/g, '""');
+            csv += `${dateStr},${ptName},"${field}","${safeVal}"\n`;
+          });
+        });
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Export monthly view to Excel
+    function exportMonthlyExcel() {
+      const sysName = document.getElementById('monthlySystem').value;
+      const monthVal = document.getElementById('monthlyMonth').value;
+      if (!sysName || !monthVal) {
+        alert('Select a system and month first.');
+        return;
+      }
+      const [year, month] = monthVal.split('-');
+      const sysObj = config.systems[sysName];
+      if (!sysObj) return;
+      const rows = [];
+      const daysInMonth = new Date(year, month, 0).getDate();
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dd = String(day).padStart(2,'0');
+        const dateStr = `${year}-${month}-${dd}`;
+        Object.entries(sysObj.points).forEach(([ptName, ptObj]) => {
+          ptObj.fields.forEach(field => {
+            const val = logs[dateStr]?.[sysName]?.[ptName]?.[field] ?? '';
+            rows.push({ Date: dateStr, Point: ptName, Field: field, Value: val });
+          });
+        });
+      }
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows, { header: ['Date','Point','Field','Value'] });
+      XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      const filename = `${sysName.replace(/\s+/g, '_')}_${year}-${month}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    }
+
+    // Show trend chart for selected filters
     function showTrend() {
       const sys = document.getElementById('trendSystem').value;
       const pt = document.getElementById('trendPoint').value;
@@ -1347,7 +1326,6 @@
       const labels = [];
       const dataPoints = [];
       if (!sys || !pt || !field) return;
-      // Collect logs within range
       const fromDate = from || '0000-00-00';
       const toDate = to || '9999-12-31';
       const dates = Object.keys(logs).filter(d => d >= fromDate && d <= toDate).sort();
@@ -1360,7 +1338,6 @@
         }
       });
       const ctx = document.getElementById('trendChart').getContext('2d');
-      // Destroy previous chart if exists
       if (window.trendChartInstance) {
         window.trendChartInstance.destroy();
       }
@@ -1380,9 +1357,8 @@
       });
     }
 
-    /** Event listeners and initialization */
+    // Event listeners and initialization
     function initEvents() {
-      // Tab switching
       document.querySelectorAll('nav.tabs .tab').forEach(btn => {
         btn.addEventListener('click', () => {
           const target = btn.dataset.target;
@@ -1390,18 +1366,15 @@
           document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
           btn.classList.add('active');
           document.getElementById(target).classList.add('active');
-          // Refresh appropriate view
           if (target === 'monthly') {
             renderSystemOptions();
           } else if (target === 'settings') {
-            // ensure ranges list updated
             renderRangesTable();
           } else if (target === 'trends') {
             renderSystemOptions();
           }
         });
       });
-      // Date navigation
       document.getElementById('prevDay').addEventListener('click', () => {
         const dateInput = document.getElementById('dailyDate');
         if (!dateInput.value) return;
@@ -1423,36 +1396,25 @@
       document.getElementById('monthlySystem').addEventListener('change', buildMonthlyGrid);
       document.getElementById('monthlyMonth').addEventListener('change', buildMonthlyGrid);
       document.getElementById('buildMonthly').addEventListener('click', buildMonthlyGrid);
-
-      // Print the monthly grid (browser's print dialog, which can export to PDF)
-      document.getElementById('monthlyPrint').addEventListener('click', () => {
-        // Show only the monthly grid during print by adding a print class
-        window.print();
-      });
-      // Export the current monthly grid as a CSV file for Excel
-      document.getElementById('monthlyExport').addEventListener('click', () => {
-        exportMonthlyCsv();
-      });
-      // Export to Excel using SheetJS
-      document.getElementById('monthlyExportExcel').addEventListener('click', () => {
-        exportMonthlyExcel();
-      });
-      // Storage mode
-      document.getElementById('storageMode').addEventListener('change', (e) => {
+      document.getElementById('monthlyPrint').addEventListener('click', () => { window.print(); });
+      document.getElementById('monthlyExport').addEventListener('click', exportMonthlyCsv);
+      document.getElementById('monthlyExportExcel').addEventListener('click', exportMonthlyExcel);
+      document.getElementById('storageMode').addEventListener('change', async (e) => {
         config.storage.mode = e.target.value;
         if (config.storage.mode === 'firebase') {
           document.getElementById('firebaseConfigSection').style.display = 'block';
         } else {
           document.getElementById('firebaseConfigSection').style.display = 'none';
         }
-        saveConfig();
+        await saveConfig();
+        await loadLogs();
+        buildDailyGrid();
+        buildMonthlyGrid();
       });
-      // Namespace
       document.getElementById('namespace').addEventListener('change', (e) => {
         config.storage.namespace = e.target.value;
         saveConfig();
       });
-      // Enable Firebase
       document.getElementById('enableFirebase').addEventListener('click', async () => {
         let cfg;
         try {
@@ -1469,23 +1431,22 @@
         buildMonthlyGrid();
         alert('Firebase enabled');
       });
-      // Add system
       document.getElementById('addSystem').addEventListener('click', () => {
         const name = prompt('Enter system name:');
         if (!name) return;
-        if (config.systems[name]) { alert('System already exists'); return; }
+        if (config.systems[name]) {
+          alert('System already exists'); return;
+        }
         config.systems[name] = { points: {} };
         saveConfig();
         renderSystemOptions();
         renderSystemsList();
         renderRangesTable();
       });
-      // Seed defaults
       document.getElementById('seedDefaults').addEventListener('click', () => {
         if (!confirm('Seed default systems? This will not overwrite existing systems.')) return;
         seedDefaults();
       });
-      // Export backup
       document.getElementById('exportBackup').addEventListener('click', () => {
         const backup = { config, logs };
         const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -1496,14 +1457,12 @@
         a.click();
         URL.revokeObjectURL(url);
       });
-      // Force reset
       document.getElementById('forceReset').addEventListener('click', () => {
         if (!confirm('This will clear ALL local data (config and logs) and reload the page. Continue?')) return;
         localStorage.removeItem('dailyLogConfig');
         localStorage.removeItem('dailyLogData');
         location.reload();
       });
-      // Trend controls
       document.getElementById('trendSystem').addEventListener('change', () => {
         const sys = document.getElementById('trendSystem').value;
         const ptSelect = document.getElementById('trendPoint');
@@ -1515,7 +1474,6 @@
         Object.keys(sysObj.points).forEach(pt => {
           const opt = document.createElement('option'); opt.value = pt; opt.textContent = pt; ptSelect.appendChild(opt);
         });
-        // Trigger point change to populate fields
         ptSelect.dispatchEvent(new Event('change'));
       });
       document.getElementById('trendPoint').addEventListener('change', () => {
@@ -1526,28 +1484,31 @@
         if (!sys || !pt) return;
         const fields = config.systems[sys].points[pt].fields;
         fields.forEach(f => {
-          // Skip calc totals for trending? trending should include them too.
           const opt = document.createElement('option'); opt.value = f; opt.textContent = f; fieldSelect.appendChild(opt);
         });
       });
       document.getElementById('showTrend').addEventListener('click', showTrend);
     }
 
-    /** Initialize the application on first load. */
+    // Initialization function
     async function init() {
       loadConfig();
-      // Display firebase config if needed
+      // Show Firebase config if needed
       if (config.storage.mode === 'firebase') {
         document.getElementById('firebaseConfigSection').style.display = 'block';
       }
       document.getElementById('storageMode').value = config.storage.mode;
       document.getElementById('namespace').value = config.storage.namespace || DEFAULT_NAMESPACE;
       if (config.storage.firebaseConfig) {
-        document.getElementById('firebaseConfig').value = JSON.stringify(config.storage.firebaseConfig);
-        initFirebase();
+          document.getElementById('firebaseConfig').value = JSON.stringify(config.storage.firebaseConfig);
+          initFirebase();
+      }
+      if (config.storage.mode === 'supabase') {
+        initSupabase();
+        await remoteLoadConfig();
+        await remoteLoadLogs();
       }
       await loadLogs();
-      // Seed defaults if no systems
       if (Object.keys(config.systems).length === 0) {
         seedDefaults();
       }
@@ -1555,10 +1516,8 @@
       renderSystemsList();
       renderRangesTable();
       initEvents();
-      // Preselect today's date
       const today = new Date().toISOString().slice(0,10);
       document.getElementById('dailyDate').value = today;
-      // Preselect current month in monthly view (YYYY-MM)
       const currentMonth = today.slice(0,7);
       const monthlyMonthInput = document.getElementById('monthlyMonth');
       if (monthlyMonthInput) monthlyMonthInput.value = currentMonth;
